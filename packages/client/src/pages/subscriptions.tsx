@@ -12,12 +12,13 @@
  * - 页面保留视图模式和布局，不承载业务规则。
  */
 
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { Header } from '@/components/header';
 import { SubscriptionCard } from '@/components/subscription-card';
 import { AddSubscriptionDialog } from '@/components/add-subscription-dialog';
 import { EditSubscriptionDialog } from '@/components/edit-subscription-dialog';
 import { SubscriptionListSkeleton } from '@/components/loading-skeleton';
+import { VirtualizedList } from '@/components/ui/virtualized-list';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -49,6 +50,10 @@ import {
 
 /** 空订阅数组：用于在数据未加载完成时提供稳定引用，避免 useMemo 依赖抖动。 */
 const EMPTY_SUBSCRIPTIONS: Subscription[] = [];
+const SUBSCRIPTION_VIRTUALIZATION_THRESHOLD = 60;
+const SUBSCRIPTION_GRID_ROW_GAP = 16;
+const SUBSCRIPTION_GRID_ROW_ESTIMATE = 184;
+const SUBSCRIPTION_LIST_ROW_ESTIMATE = 142;
 
 const SORT_OPTION_LABEL_KEYS: Record<SubscriptionSortOption, MessageKey> = {
   default: "subscriptions.sort.default",
@@ -61,6 +66,98 @@ const SORT_OPTION_LABEL_KEYS: Record<SubscriptionSortOption, MessageKey> = {
   name_asc: "subscriptions.sort.nameAsc",
   name_desc: "subscriptions.sort.nameDesc",
 };
+
+function getRootScrollElement() {
+  return typeof document === "undefined" ? null : document.getElementById("root");
+}
+
+function getSubscriptionColumnCount(viewMode: "grid" | "list", isTwoColumnGrid: boolean, isThreeColumnGrid: boolean) {
+  if (viewMode === "list") return 1;
+  if (isThreeColumnGrid) return 3;
+  if (isTwoColumnGrid) return 2;
+  return 1;
+}
+
+function chunkSubscriptions(subscriptions: Subscription[], columnCount: number) {
+  const rows: Subscription[][] = [];
+  for (let index = 0; index < subscriptions.length; index += columnCount) {
+    rows.push(subscriptions.slice(index, index + columnCount));
+  }
+  return rows;
+}
+
+type SubscriptionGridProps = {
+  subscriptions: Subscription[];
+  viewMode: "grid" | "list";
+  timeZone: string;
+  onEdit: (id: string) => void;
+  onDelete: (id: string) => void;
+};
+
+function SubscriptionGrid({ subscriptions, viewMode, timeZone, onEdit, onDelete }: SubscriptionGridProps) {
+  const isTwoColumnGrid = useMediaQuery("(min-width: 640px)");
+  const isThreeColumnGrid = useMediaQuery("(min-width: 1024px)");
+  const columnCount = getSubscriptionColumnCount(viewMode, isTwoColumnGrid, isThreeColumnGrid);
+  const rows = useMemo(() => chunkSubscriptions(subscriptions, columnCount), [columnCount, subscriptions]);
+
+  if (subscriptions.length <= SUBSCRIPTION_VIRTUALIZATION_THRESHOLD) {
+    return (
+      <div className={cn(
+        "grid items-stretch gap-4",
+        viewMode === 'grid'
+          ? "sm:grid-cols-2 lg:grid-cols-3"
+          : "grid-cols-1"
+      )}>
+        {subscriptions.map((sub, index) => (
+          <div
+            key={sub.id}
+            className="h-full animate-fade-in"
+            style={{ animationDelay: `${index * 30}ms` }}
+          >
+            <SubscriptionCard
+              subscription={sub}
+              viewMode={viewMode}
+              timeZone={timeZone}
+              onEdit={onEdit}
+              onDelete={onDelete}
+            />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <VirtualizedList
+      count={rows.length}
+      estimateSize={() => viewMode === "grid" ? SUBSCRIPTION_GRID_ROW_ESTIMATE : SUBSCRIPTION_LIST_ROW_ESTIMATE}
+      gap={SUBSCRIPTION_GRID_ROW_GAP}
+      getItemKey={(rowIndex) => rows[rowIndex]?.map((subscription) => subscription.id).join("|") ?? rowIndex}
+      getScrollElement={getRootScrollElement}
+      itemClassName={cn(
+        "grid items-stretch gap-4",
+        viewMode === "grid" ? "sm:grid-cols-2 lg:grid-cols-3" : "grid-cols-1",
+      )}
+      testId="virtualized-subscription-list"
+      renderItem={(rowIndex) => {
+        const row = rows[rowIndex];
+        if (!row) return null;
+
+        return row.map((sub) => (
+          <div key={sub.id} className="h-full">
+            <SubscriptionCard
+              subscription={sub}
+              viewMode={viewMode}
+              timeZone={timeZone}
+              onEdit={onEdit}
+              onDelete={onDelete}
+            />
+          </div>
+        ));
+      }}
+    />
+  );
+}
 
 /** 订阅列表页组件。 */
 const Subscriptions = () => {
@@ -373,28 +470,13 @@ const Subscriptions = () => {
             )}
           </div>
         ) : (
-          <div className={cn(
-            "grid items-stretch gap-4",
-            viewMode === 'grid' 
-              ? "sm:grid-cols-2 lg:grid-cols-3" 
-              : "grid-cols-1"
-          )}>
-            {filteredSubscriptions.map((sub, index) => (
-              <div 
-                key={sub.id} 
-                className="h-full animate-fade-in"
-                style={{ animationDelay: `${index * 30}ms` }}
-              >
-                <SubscriptionCard 
-                  subscription={sub} 
-                  viewMode={viewMode}
-                  timeZone={timeZone}
-                  onEdit={handleEditSubscription}
-                  onDelete={handleDeleteSubscription}
-                />
-              </div>
-            ))}
-          </div>
+          <SubscriptionGrid
+            subscriptions={filteredSubscriptions}
+            viewMode={viewMode}
+            timeZone={timeZone}
+            onEdit={handleEditSubscription}
+            onDelete={handleDeleteSubscription}
+          />
         )}
       </main>
 

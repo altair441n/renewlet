@@ -151,9 +151,11 @@ function subscription(overrides: SubscriptionOverrides = {}): Subscription {
 
 function renderSubscriptionsPage() {
   return render(
-    <TooltipProvider delayDuration={0}>
-      <Subscriptions />
-    </TooltipProvider>,
+    <div id="root" style={{ height: 800, overflowY: "auto" }}>
+      <TooltipProvider delayDuration={0}>
+        <Subscriptions />
+      </TooltipProvider>
+    </div>,
   );
 }
 
@@ -161,11 +163,18 @@ function visibleSubscriptionNames() {
   return screen.getAllByTestId("subscription-card").map((card) => card.textContent);
 }
 
-function mockMobileTagFilterMatch(isMobile: boolean) {
+function mockMobileTagFilterMatch(isMobile: boolean, width = isMobile ? 390 : 1280) {
   Object.defineProperty(window, "matchMedia", {
     writable: true,
     value: vi.fn().mockImplementation((query: string) => ({
-      matches: query === "(max-width: 767px)" ? isMobile : false,
+      matches:
+        query === "(max-width: 767px)"
+          ? isMobile
+          : query === "(min-width: 640px)"
+            ? width >= 640
+            : query === "(min-width: 1024px)"
+              ? width >= 1024
+              : false,
       media: query,
       onchange: null,
       addEventListener: vi.fn(),
@@ -175,6 +184,16 @@ function mockMobileTagFilterMatch(isMobile: boolean) {
       dispatchEvent: vi.fn(),
     })),
   });
+}
+
+function manySubscriptions(count: number) {
+  return Array.from({ length: count }, (_, index) =>
+    subscription({
+      id: `service-${index.toString().padStart(3, "0")}`,
+      name: `Service ${index.toString().padStart(3, "0")}`,
+      price: index + 1,
+    }),
+  );
 }
 
 describe("Subscriptions page sorting", () => {
@@ -317,5 +336,54 @@ describe("Subscriptions page mobile tag filters", () => {
       expect(visibleSubscriptionNames()).toEqual(["Tagged Cloud", "Docs Notes", "Design Suite", "Plain Service"]);
     });
     expect(screen.getByRole("button", { name: "标签" })).toBeInTheDocument();
+  });
+});
+
+describe("Subscriptions page virtualization", () => {
+  beforeAll(() => {
+    Element.prototype.hasPointerCapture ??= vi.fn(() => false);
+    Element.prototype.setPointerCapture ??= vi.fn();
+    Element.prototype.releasePointerCapture ??= vi.fn();
+    Element.prototype.scrollIntoView ??= vi.fn();
+  });
+
+  beforeEach(() => {
+    mockMobileTagFilterMatch(false, 1280);
+    mocks.useSettings.mockReturnValue({
+      data: {
+        timezone: "Asia/Shanghai",
+        defaultCurrency: "CNY",
+      },
+    });
+    mocks.useSubscriptions.mockReturnValue({
+      data: manySubscriptions(90),
+      isPending: false,
+    });
+  });
+
+  it("virtualizes large subscription lists while preserving sorting and filtering", async () => {
+    const user = userEvent.setup();
+    renderSubscriptionsPage();
+
+    expect(screen.getByTestId("virtualized-subscription-list")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getAllByTestId("subscription-card").length).toBeGreaterThan(0);
+    });
+    expect(screen.getAllByTestId("subscription-card").length).toBeLessThan(90);
+    expect(visibleSubscriptionNames()[0]).toBe("Service 000");
+
+    await user.click(screen.getByRole("combobox", { name: "排序" }));
+    await user.click(await screen.findByRole("option", { name: "名称 Z-A" }));
+
+    await waitFor(() => {
+      expect(visibleSubscriptionNames()[0]).toBe("Service 089");
+    });
+
+    await user.type(screen.getByPlaceholderText("搜索订阅、标签或备注..."), "Service 042");
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("virtualized-subscription-list")).not.toBeInTheDocument();
+      expect(visibleSubscriptionNames()).toEqual(["Service 042"]);
+    });
   });
 });

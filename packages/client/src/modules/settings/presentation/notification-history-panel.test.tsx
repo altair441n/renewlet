@@ -171,6 +171,30 @@ function createSkippedHistoryResponse(): NotificationHistoryResponse {
   };
 }
 
+function createUpcomingBatches(count: number): NotificationHistoryResponse["upcoming"] {
+  return Array.from({ length: count }, (_, index) => {
+    const day = String(1 + Math.floor(index / 24)).padStart(2, "0");
+    const hour = String(index % 24).padStart(2, "0");
+    return {
+      scheduledLocalDate: assertDateOnly(`2026-05-${day}`),
+      scheduledLocalTime: assertLocalTime(`${hour}:00`),
+      timeZone: "Asia/Shanghai",
+      scheduledInstantUtc: `2026-05-${day}T${hour}:00:00Z`,
+      items: [{
+        type: "renewal" as const,
+        subscriptionId: `sub-${index}`,
+        name: `Virtual Batch ${index}`,
+        price: index + 1,
+        currency: "USD",
+        status: "active" as const,
+        targetDate: assertDateOnly("2026-06-01"),
+        reminderDays: 3,
+        daysUntil: 3,
+      }],
+    };
+  });
+}
+
 describe("NotificationHistoryPanel", () => {
   it("shows full history row text in a tooltip when truncated", async () => {
     const user = userEvent.setup();
@@ -282,5 +306,40 @@ describe("NotificationHistoryPanel", () => {
 
     expect(screen.getByText("Critical SaaS")).toBeInTheDocument();
     expect(screen.getByText("2026-05-17 · 重复提醒 1小时")).toBeInTheDocument();
+  });
+
+  it("virtualizes large upcoming schedule previews without changing history interactions", async () => {
+    const user = userEvent.setup();
+    const setStatus = vi.fn();
+    const data = createSkippedHistoryResponse();
+    data.upcoming = createUpcomingBatches(40);
+
+    render(
+      <TooltipProvider delayDuration={0}>
+        <NotificationHistoryPanel
+          data={data}
+          isLoading={false}
+          isFetching={false}
+          error={null}
+          status="all"
+          setStatus={setStatus}
+          loadMore={vi.fn()}
+          refetch={vi.fn()}
+        />
+      </TooltipProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "查看调度与历史" }));
+
+    expect(screen.getByTestId("virtualized-upcoming-notification-list")).toBeInTheDocument();
+    expect(await screen.findByText("Virtual Batch 0")).toBeInTheDocument();
+    expect(screen.getAllByText(/Virtual Batch/).length).toBeLessThan(40);
+    expect(screen.queryByText("Virtual Batch 39")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("tab", { name: "发送历史" }));
+    await user.click(screen.getByRole("button", { name: "已跳过" }));
+
+    expect(setStatus).toHaveBeenCalledWith("skipped");
+    expect(screen.getByText("累计尝试渠道")).toBeInTheDocument();
   });
 });

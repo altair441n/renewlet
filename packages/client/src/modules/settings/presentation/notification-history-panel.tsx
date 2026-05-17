@@ -13,11 +13,12 @@
  *
  * Caveat: `NotificationJobResult` 是 cron result | empty object。访问 message/channels 前必须用 `hasCronResult` 收窄。
  */
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState, type RefObject } from "react";
 import { AlertTriangle, BellRing, CheckCircle2, Clock, History, RefreshCw, XCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { TruncatedTooltipText } from "@/components/ui/truncated-tooltip-text";
+import { VirtualizedList } from "@/components/ui/virtualized-list";
 import {
   Dialog,
   DialogContent,
@@ -36,6 +37,10 @@ import type {
   NotificationHistoryStatusFilter,
   UpcomingNotificationBatch,
 } from "../application/use-notification-history";
+
+const UPCOMING_VIRTUALIZATION_THRESHOLD = 30;
+const UPCOMING_BATCH_GAP = 12;
+const UPCOMING_BATCH_ESTIMATE = 132;
 
 type NotificationHistoryPanelProps = {
   data: NotificationHistoryResponse | undefined;
@@ -102,41 +107,81 @@ function SummaryValue({ label, value, muted }: { label: string; value: string; m
   );
 }
 
-function UpcomingBatchList({ batches }: { batches: UpcomingNotificationBatch[] }) {
+function getUpcomingBatchKey(batch: UpcomingNotificationBatch) {
+  return `${batch.scheduledLocalDate}-${batch.scheduledLocalTime}-${batch.timeZone}`;
+}
+
+function UpcomingBatchCard({ batch }: { batch: UpcomingNotificationBatch }) {
   const { t } = useI18n();
+  return (
+    <div className="min-w-0 rounded-lg border border-border bg-secondary/30 p-3 sm:p-4">
+      <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+        <TruncatedTooltipText
+          as="div"
+          text={formatSchedule(batch.scheduledLocalDate, batch.scheduledLocalTime, batch.timeZone)}
+          className="min-w-0 flex-1 text-sm font-medium text-foreground"
+        />
+        <Badge variant="outline" className="shrink-0 border-border text-muted-foreground">
+          {t("notification.items", { count: batch.items.length })}
+        </Badge>
+      </div>
+      <div className="mt-3 grid gap-2">
+        {batch.items.map((item, index) => (
+          <div key={`${item.subscriptionId}-${item.type}-${item.targetDate}-${index}`} className="flex min-w-0 flex-col gap-1 text-sm sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+            <TruncatedTooltipText text={item.name} className="min-w-0 flex-1 text-foreground" />
+            <span className="break-words text-xs text-muted-foreground sm:shrink-0 sm:text-right">
+              {item.type === "expired"
+                ? t("notification.dailyIncluded")
+                : item.repeatReminder
+                  ? t("notification.targetRepeatReminder", { date: item.targetDate, interval: item.repeatReminder.interval })
+                : t("notification.targetReminder", { date: item.targetDate, days: item.reminderDays })}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function UpcomingBatchList({
+  batches,
+  scrollElementRef,
+}: {
+  batches: UpcomingNotificationBatch[];
+  scrollElementRef: RefObject<HTMLElement | null>;
+}) {
+  const { t } = useI18n();
+  const getScrollElement = useCallback(() => scrollElementRef.current, [scrollElementRef]);
+
   if (batches.length === 0) {
     return <div className="rounded-lg border border-dashed border-border p-4 text-center text-sm text-muted-foreground sm:p-6">{t("notification.upcoming.empty")}</div>;
+  }
+
+  if (batches.length > UPCOMING_VIRTUALIZATION_THRESHOLD) {
+    return (
+      <VirtualizedList
+        count={batches.length}
+        estimateSize={() => UPCOMING_BATCH_ESTIMATE}
+        gap={UPCOMING_BATCH_GAP}
+        getItemKey={(index) => {
+          const batch = batches[index];
+          return batch ? getUpcomingBatchKey(batch) : index;
+        }}
+        getScrollElement={getScrollElement}
+        overscan={5}
+        testId="virtualized-upcoming-notification-list"
+        renderItem={(index) => {
+          const batch = batches[index];
+          return batch ? <UpcomingBatchCard batch={batch} /> : null;
+        }}
+      />
+    );
   }
 
   return (
     <div className="grid gap-3">
       {batches.map((batch) => (
-        <div key={`${batch.scheduledLocalDate}-${batch.scheduledLocalTime}-${batch.timeZone}`} className="min-w-0 rounded-lg border border-border bg-secondary/30 p-3 sm:p-4">
-          <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
-            <TruncatedTooltipText
-              as="div"
-              text={formatSchedule(batch.scheduledLocalDate, batch.scheduledLocalTime, batch.timeZone)}
-              className="min-w-0 flex-1 text-sm font-medium text-foreground"
-            />
-            <Badge variant="outline" className="shrink-0 border-border text-muted-foreground">
-              {t("notification.items", { count: batch.items.length })}
-            </Badge>
-          </div>
-          <div className="mt-3 grid gap-2">
-            {batch.items.map((item, index) => (
-              <div key={`${item.subscriptionId}-${item.type}-${item.targetDate}-${index}`} className="flex min-w-0 flex-col gap-1 text-sm sm:flex-row sm:items-center sm:justify-between sm:gap-3">
-                <TruncatedTooltipText text={item.name} className="min-w-0 flex-1 text-foreground" />
-                <span className="break-words text-xs text-muted-foreground sm:shrink-0 sm:text-right">
-                  {item.type === "expired"
-                    ? t("notification.dailyIncluded")
-                    : item.repeatReminder
-                      ? t("notification.targetRepeatReminder", { date: item.targetDate, interval: item.repeatReminder.interval })
-                    : t("notification.targetReminder", { date: item.targetDate, days: item.reminderDays })}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
+        <UpcomingBatchCard key={getUpcomingBatchKey(batch)} batch={batch} />
       ))}
     </div>
   );
@@ -250,6 +295,7 @@ export function NotificationHistoryPanel({
 }: NotificationHistoryPanelProps) {
   const [open, setOpen] = useState(false);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+  const dialogScrollRef = useRef<HTMLDivElement>(null);
   const { t } = useI18n();
   const filterLabels: Array<{ value: NotificationHistoryStatusFilter; label: string }> = [
     { value: "all", label: t("notification.filter.all") },
@@ -316,7 +362,7 @@ export function NotificationHistoryPanel({
                   </Button>
                 </div>
 
-                <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-6">
+                <div ref={dialogScrollRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-6" data-testid="notification-history-scroll">
                   {error ? (
                     <div className="mb-4 rounded-lg border border-destructive/20 bg-destructive/5 p-4 text-sm text-destructive">
                       {t("notification.historyLoadFailed")}
@@ -324,7 +370,7 @@ export function NotificationHistoryPanel({
                   ) : null}
 
                   <TabsContent value="upcoming" className="mt-0">
-                    <UpcomingBatchList batches={data?.upcoming ?? []} />
+                    <UpcomingBatchList batches={data?.upcoming ?? []} scrollElementRef={dialogScrollRef} />
                   </TabsContent>
 
                   <TabsContent value="history" className="mt-0 grid gap-4">

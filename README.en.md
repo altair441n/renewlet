@@ -165,7 +165,7 @@ For the one-command deployment, all settings live in `.env`. Defaults are enough
 | `RENEWLET_IMAGE` | `zhiyingzzhou/renewlet:latest` | Docker image; `latest` follows the newest release. For production, pin `zhiyingzzhou/renewlet:vX.Y.Z`, or switch to `ghcr.io/zhiyingzzhou/renewlet:latest`. |
 | `APP_URL` | `http://localhost:3000` | Public app URL used in email and notification links. |
 | `TZ` | `Asia/Shanghai` | Container time zone, mainly for logs; reminder time follows each user's in-app setting. |
-| `PB_ENCRYPTION_KEY` | generated | Encrypts sensitive PocketBase settings. Do not rotate it casually after deployment. |
+| `PB_ENCRYPTION_KEY` | generated | Must be exactly 32 characters. Encrypts sensitive PocketBase settings. Do not rotate it casually after deployment. |
 | `GOMEMLIMIT` / `MEM_LIMIT` | `128MiB` / `256m` | Go runtime soft memory limit and container memory limit. |
 | `SMTP_HOST` / `SMTP_FROM` | empty | Enables PocketBase password-reset email when configured. |
 | `BACKUPS_CRON` | empty | Optional PocketBase backup cron expression. |

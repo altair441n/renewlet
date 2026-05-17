@@ -165,7 +165,7 @@ rm -rf data .env docker-compose.yml
 | `RENEWLET_IMAGE` | `zhiyingzzhou/renewlet:latest` | Docker 镜像；`latest` 会跟随最新版本，生产环境可固定为 `zhiyingzzhou/renewlet:vX.Y.Z`，也可改为 `ghcr.io/zhiyingzzhou/renewlet:latest`。 |
 | `APP_URL` | `http://localhost:3000` | 对外访问地址，用于生成邮件和通知里的链接。 |
 | `TZ` | `Asia/Shanghai` | 容器时区，主要影响日志；业务提醒时间以用户设置为准。 |
-| `PB_ENCRYPTION_KEY` | 自动生成 | 用于加密 PocketBase settings 中的敏感字段，部署后不要随意更换。 |
+| `PB_ENCRYPTION_KEY` | 自动生成 | 必须正好 32 字符，用于加密 PocketBase settings 中的敏感字段，部署后不要随意更换。 |
 | `GOMEMLIMIT` / `MEM_LIMIT` | `128MiB` / `256m` | Go 运行时软内存上限和容器内存限制。 |
 | `SMTP_HOST` / `SMTP_FROM` | 空 | 配置后可启用 PocketBase 密码找回邮件。 |
 | `BACKUPS_CRON` | 空 | 可选的 PocketBase 自动备份 cron 表达式。 |

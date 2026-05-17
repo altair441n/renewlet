@@ -42,7 +42,24 @@ require_docker_compose() {
   fi
 }
 
-random_secret() {
+random_pb_encryption_key() {
+  if command -v openssl >/dev/null 2>&1; then
+    openssl rand -hex 16
+    return
+  fi
+
+  if [ -r /dev/urandom ]; then
+    if command -v od >/dev/null 2>&1; then
+      od -An -N16 -tx1 /dev/urandom | tr -d ' \n'
+      printf '\n'
+      return
+    fi
+  fi
+
+  fail "openssl or /dev/urandom is required to generate PB_ENCRYPTION_KEY"
+}
+
+random_cron_secret() {
   if command -v openssl >/dev/null 2>&1; then
     openssl rand -base64 32
     return
@@ -56,7 +73,11 @@ random_secret() {
     fi
   fi
 
-  fail "openssl or /dev/urandom is required to generate secrets"
+  fail "openssl or /dev/urandom is required to generate CRON_SECRET"
+}
+
+env_value_length() {
+  printf '%s' "$1" | LC_ALL=C wc -c | tr -d '[:space:]'
 }
 
 ensure_env_value() {
@@ -82,6 +103,33 @@ ensure_env_value() {
     printf '%s="%s"\n' "$key" "$value" >>"$ENV_FILE"
     log "Added ${key}"
   fi
+}
+
+validate_pb_encryption_key() {
+  local current_value=""
+  local current_length
+
+  if ! grep -Eq "^PB_ENCRYPTION_KEY=" "$ENV_FILE"; then
+    return
+  fi
+
+  current_value=$(grep -E "^PB_ENCRYPTION_KEY=" "$ENV_FILE" | tail -n 1 | cut -d= -f2-)
+  current_value=$(printf '%s' "$current_value" | sed -E "s/^['\"]//; s/['\"]$//")
+
+  if [ -z "$current_value" ]; then
+    return
+  fi
+
+  current_length=$(env_value_length "$current_value")
+  if [ "$current_length" != "32" ]; then
+    fail "PB_ENCRYPTION_KEY must be exactly 32 characters; got ${current_length}. Generate one with: openssl rand -hex 16. If this deployment already has encrypted data, restore the original valid 32-character key instead of rotating it."
+  fi
+}
+
+ensure_pb_encryption_key() {
+  validate_pb_encryption_key
+  ensure_env_value "PB_ENCRYPTION_KEY" "$(random_pb_encryption_key)"
+  validate_pb_encryption_key
 }
 
 detect_access_url() {
@@ -117,8 +165,8 @@ main() {
   chmod 700 "$DATA_DIR" 2>/dev/null || true
   chmod 600 "$ENV_FILE" 2>/dev/null || true
 
-  ensure_env_value "PB_ENCRYPTION_KEY" "$(random_secret)"
-  ensure_env_value "CRON_SECRET" "$(random_secret)"
+  ensure_pb_encryption_key
+  ensure_env_value "CRON_SECRET" "$(random_cron_secret)"
 
   log ""
   log "Renewlet deployment files are ready."

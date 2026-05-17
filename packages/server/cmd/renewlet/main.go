@@ -40,6 +40,9 @@ func main() {
 	if os.Getenv("GOMEMLIMIT") == "" {
 		_ = os.Setenv("GOMEMLIMIT", "128MiB")
 	}
+	if err := validatePBEncryptionKeyEnv(); err != nil {
+		log.Fatal(err)
+	}
 
 	app := pocketbase.New()
 	if err := registerNotificationCron(app); err != nil {

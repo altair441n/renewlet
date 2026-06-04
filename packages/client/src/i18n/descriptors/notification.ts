@@ -1,3 +1,4 @@
+// notification domain 覆盖设置页、历史和测试通知反馈；与服务端通知正文 catalog 分开维护。
 import { msg } from "@lingui/core/macro";
 
 export const messages = [

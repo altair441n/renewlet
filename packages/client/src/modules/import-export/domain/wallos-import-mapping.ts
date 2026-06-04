@@ -27,6 +27,11 @@ import {
 export type WallosTableRow = Record<string, unknown>;
 export type ImportAssetSource = Blob | string;
 
+/**
+ * WallosApiPayload 描述用户粘贴或合并的 Wallos API JSON。
+ *
+ * Wallos 各端点可分开导出，因此 lookup 表都是可选输入；缺失时只能降级映射，不能发起网络补全。
+ */
 export interface WallosApiPayload {
   subscriptions: WallosTableRow[];
   users?: WallosTableRow[];
@@ -38,6 +43,11 @@ export interface WallosApiPayload {
   members?: unknown;
 }
 
+/**
+ * WallosDatabaseModel 是 Worker 从 SQLite/ZIP 中提取的窄模型。
+ *
+ * 只保留导入映射需要的表和 Logo entry，避免主线程接收完整数据库内容。
+ */
 export interface WallosDatabaseModel {
   users: WallosImportUser[];
   subscriptions: WallosTableRow[];
@@ -48,6 +58,7 @@ export interface WallosDatabaseModel {
   logoFiles: Map<string, ImportAssetSource>;
 }
 
+/** ImportBuildBaseContext 提供导入映射需要的当前 Renewlet 设置、配置和日期上下文。 */
 export interface ImportBuildBaseContext {
   config: CustomConfig;
   settings: AppSettings;
@@ -66,6 +77,7 @@ export function buildFromRenewletExport(
   context: ImportBuildBaseContext,
   assetFiles = new Map<string, ImportAssetSource>(),
 ): PreparedImport {
+  // Renewlet v1 备份中的资产路径必须先转为本地待上传资产，不能直接把 ZIP 内路径写回订阅 logo。
   const warnings: string[] = [];
   const assets: ImportAssetRef[] = [];
   const subscriptions = data.data.subscriptions.map((subscription, index) => {
@@ -113,6 +125,11 @@ export function buildFromRenewletExport(
   };
 }
 
+/**
+ * buildFromWallosDatabase 将 Wallos SQLite 模型转换为 Renewlet 导入 payload。
+ *
+ * 多用户备份默认选择第一个用户；UI 可重新传 wallosUserId 重新解析同一个文件。
+ */
 export function buildFromWallosDatabase(
   model: WallosDatabaseModel,
   context: ImportBuildBaseContext,
@@ -127,6 +144,11 @@ export function buildFromWallosDatabase(
   return { ...prepared, wallosUsers: model.users };
 }
 
+/**
+ * buildFromWallosRows 映射 Wallos API/DB 订阅行。
+ *
+ * 映射过程中会增补 customConfig，以便导入后用户能继续编辑 Wallos 分类/付款方式/货币。
+ */
 export function buildFromWallosRows(
   rows: WallosTableRow[],
   base: ImportBuildBaseContext,
@@ -161,6 +183,11 @@ export function buildFromWallosRows(
   };
 }
 
+/**
+ * buildFromWallosDisplayRows 映射 Wallos 前端表格导出的低置信数据。
+ *
+ * display 来源没有稳定 ID，只能用名称/URL/周期等字段生成 display hash，并在预览中提示用户确认。
+ */
 export function buildFromWallosDisplayRows(
   rows: WallosTableRow[],
   base: ImportBuildBaseContext,
@@ -312,6 +339,7 @@ function makeImportSubscription(input: {
     customDays: input.billing.billingCycle === "custom" ? input.billing.customDays ?? 1 : null,
     category: input.category,
     status: input.status,
+    pinned: false,
     paymentMethod: input.paymentMethod ?? null,
     startDate: input.startDate as DateOnly,
     nextBillingDate: input.nextBillingDate as DateOnly,

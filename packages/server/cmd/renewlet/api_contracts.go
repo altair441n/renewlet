@@ -22,6 +22,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tools/types"
 )
 
@@ -77,7 +78,7 @@ func (r *setupCreateRequest) Validate(locale appLocale) error {
 	r.Name = strings.TrimSpace(r.Name)
 	r.Email = strings.TrimSpace(r.Email)
 	if r.Name == "" || !isValidEmailAddress(r.Email) || len(r.Password) < 8 {
-		return errors.New(tr(locale, "管理员信息无效", "Invalid admin information"))
+		return errors.New(serverText(locale, "admin.invalidAdminInfo"))
 	}
 	return nil
 }
@@ -101,10 +102,10 @@ func (r *adminCreateUserRequest) Validate(locale appLocale) error {
 	r.Name = strings.TrimSpace(r.Name)
 	r.Email = strings.TrimSpace(r.Email)
 	if r.Name == "" || !isValidEmailAddress(r.Email) || len(r.Password) < 8 {
-		return errors.New(tr(locale, "用户信息无效", "Invalid user information"))
+		return errors.New(serverText(locale, "admin.invalidUserInfo"))
 	}
 	if r.Role != "admin" && r.Role != "user" {
-		return errors.New(tr(locale, "角色无效", "Invalid role"))
+		return errors.New(serverText(locale, "admin.invalidRole"))
 	}
 	return nil
 }
@@ -126,18 +127,18 @@ type adminPatchUserRequest struct {
 // 为什么要求至少一个字段：空 patch 通常意味着前端状态机误触发，应该显式失败。
 func (r *adminPatchUserRequest) Validate(locale appLocale) error {
 	if r.Role == nil && r.Banned == nil && r.NewPassword == nil {
-		return errors.New(tr(locale, "请求参数无效", "Invalid request parameters"))
+		return errors.New(serverText(locale, "common.invalidRequestParameters"))
 	}
 	if r.Role != nil {
 		role := strings.TrimSpace(*r.Role)
 		if role != "admin" && role != "user" {
-			return errors.New(tr(locale, "角色无效", "Invalid role"))
+			return errors.New(serverText(locale, "admin.invalidRole"))
 		}
 		*r.Role = role
 	}
 	if r.NewPassword != nil {
 		if len(*r.NewPassword) < 8 {
-			return errors.New(tr(locale, "密码至少需要 8 位", "Password must be at least 8 characters"))
+			return errors.New(serverText(locale, "admin.passwordTooShort"))
 		}
 	}
 	return nil
@@ -152,7 +153,7 @@ type accountPasswordRequest struct {
 // Validate 校验账号密码修改请求。
 func (r *accountPasswordRequest) Validate(locale appLocale) error {
 	if r.CurrentPassword == "" || len(r.NewPassword) < 8 {
-		return errors.New(tr(locale, "密码至少需要 8 位", "Password must be at least 8 characters"))
+		return errors.New(serverText(locale, "admin.passwordTooShort"))
 	}
 	return nil
 }
@@ -160,6 +161,65 @@ func (r *accountPasswordRequest) Validate(locale appLocale) error {
 // passwordResetStatusResponse 暴露“邮件找回密码是否启用”的布尔状态。
 type passwordResetStatusResponse struct {
 	Enabled bool `json:"enabled"`
+}
+
+// systemUpdateRequest 是管理员触发页面内更新的空请求体；保留严格 JSON 边界来拒绝意外字段。
+type systemUpdateRequest struct{}
+
+// systemRestartRequest 是管理员确认应用已替换二进制后的显式重启请求。
+type systemRestartRequest struct{}
+
+// calendarFeedCreateRequest 只允许空对象，用于显式拒绝前端/客户端误传 token 等敏感字段。
+type calendarFeedCreateRequest struct{}
+
+// systemBuildInfo 是前端版本弹窗展示的构建元数据；发布构建由 CI ldflags 注入。
+type systemBuildInfo struct {
+	Version   string `json:"version"`
+	Commit    string `json:"commit"`
+	BuildTime string `json:"buildTime"`
+	BuildType string `json:"buildType"`
+}
+
+// systemReleaseAssetDTO 只暴露资产名称和大小；真实下载 URL 只留在后端校验链路内，避免浏览器绕过校验直连。
+type systemReleaseAssetDTO struct {
+	Name string `json:"name"`
+	Size int64  `json:"size"`
+}
+
+// systemReleaseInfoDTO 是 GitHub Release 的前端展示视图。
+type systemReleaseInfoDTO struct {
+	TagName     string                  `json:"tagName"`
+	Version     string                  `json:"version"`
+	Name        string                  `json:"name"`
+	Body        string                  `json:"body"`
+	PublishedAt string                  `json:"publishedAt"`
+	HTMLURL     string                  `json:"htmlUrl"`
+	Assets      []systemReleaseAssetDTO `json:"assets"`
+}
+
+// systemVersionResponse 描述当前部署形态、版本检查结果，以及是否能页面内执行二进制更新。
+type systemVersionResponse struct {
+	CurrentVersion    string                `json:"currentVersion"`
+	LatestVersion     string                `json:"latestVersion"`
+	HasUpdate         bool                  `json:"hasUpdate"`
+	CheckSucceeded    bool                  `json:"checkSucceeded"`
+	Deployment        string                `json:"deployment"`
+	UpdateMode        string                `json:"updateMode"`
+	UpdateSupported   bool                  `json:"updateSupported"`
+	UnsupportedReason string                `json:"unsupportedReason,omitempty"`
+	ReleaseInfo       *systemReleaseInfoDTO `json:"releaseInfo"`
+	Cached            bool                  `json:"cached"`
+	Warning           string                `json:"warning,omitempty"`
+	Build             systemBuildInfo       `json:"build"`
+}
+
+// systemUpdateResponse 表示二进制已经替换完成，等待管理员在前端确认重启。
+type systemUpdateResponse struct {
+	OK             bool   `json:"ok"`
+	CurrentVersion string `json:"currentVersion"`
+	TargetVersion  string `json:"targetVersion"`
+	NeedsRestart   bool   `json:"needsRestart"`
+	Message        string `json:"message"`
 }
 
 // rateLimitedResponse 是简单限流响应。
@@ -182,16 +242,16 @@ func (r *mediaCandidateResolveRequest) Validate(locale appLocale) error {
 	r.Kind = strings.TrimSpace(r.Kind)
 	r.Mode = strings.TrimSpace(r.Mode)
 	if r.Kind != "logo" && r.Kind != "icon" {
-		return errors.New(tr(locale, "媒体类型无效", "Invalid media kind"))
+		return errors.New(serverText(locale, "media.kindInvalid"))
 	}
 	if r.Mode != "auto" && r.Mode != "search" {
-		return errors.New(tr(locale, "候选解析模式无效", "Invalid media candidate mode"))
+		return errors.New(serverText(locale, "media.modeInvalid"))
 	}
 	if len(r.Items) == 0 || len(r.Items) > mediaResolverCfg.Limits.MaxItems {
-		return errors.New(tr(locale, "候选解析条目数量无效", "Invalid media candidate item count"))
+		return errors.New(serverText(locale, "media.candidateItemCountInvalid"))
 	}
 	if r.Limit != nil && *r.Limit <= 0 {
-		return errors.New(tr(locale, "候选数量上限无效", "Invalid media candidate limit"))
+		return errors.New(serverText(locale, "media.candidateItemLimitInvalid"))
 	}
 	for index := range r.Items {
 		item := &r.Items[index]
@@ -199,7 +259,7 @@ func (r *mediaCandidateResolveRequest) Validate(locale appLocale) error {
 		item.Name = strings.TrimSpace(item.Name)
 		item.Website = strings.TrimSpace(item.Website)
 		if item.ID == "" || len([]rune(item.ID)) > 120 || item.Name == "" || len([]rune(item.Name)) > 120 || len([]rune(item.Website)) > 500 {
-			return errors.New(tr(locale, "候选解析条目无效", "Invalid media candidate item"))
+			return errors.New(serverText(locale, "media.candidateItemInvalid"))
 		}
 	}
 	return nil
@@ -346,17 +406,25 @@ func newHealthResponse() healthResponse {
 	}
 }
 
+// newReadyResponse 校验 PocketBase DB 可查询；部署平台 readiness 可用它区别进程存活和数据面就绪。
+func newReadyResponse(app core.App) (healthResponse, error) {
+	if _, err := app.DB().NewQuery("SELECT 1").Execute(); err != nil {
+		return healthResponse{}, err
+	}
+	return newHealthResponse(), nil
+}
+
 // invalidRequestBodyMessage 返回本地化请求体错误文案。
 func invalidRequestBodyMessage(locale appLocale) string {
-	return tr(locale, "请求体无效", "Invalid request body")
+	return serverText(locale, "common.invalidRequestBody")
 }
 
 // validationErrorMessage 优先透出 Validate 返回的具体错误。
-func validationErrorMessage(locale appLocale, fallbackZh string, fallbackEn string, err error) string {
+func validationErrorMessage(locale appLocale, fallbackKey string, err error) string {
 	if err != nil && strings.TrimSpace(err.Error()) != "" {
 		return err.Error()
 	}
-	return tr(locale, fallbackZh, fallbackEn)
+	return serverText(locale, fallbackKey)
 }
 
 // rawJSONIsNull 判断可选 RawMessage 是否显式传入 null。

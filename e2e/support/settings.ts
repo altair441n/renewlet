@@ -13,6 +13,7 @@ function extractRemoteTestPhone(payload: unknown): string | null {
 }
 
 export async function gotoSettingsAfterHydration(page: Page) {
+  // 设置页会先渲染默认值再被远端设置覆盖；E2E 必须等 GET 返回后再断言表单，避免首帧默认值造成 flaky。
   const settingsRead = page.waitForResponse((response) => (
     response.request().method() === "GET"
     && response.status() === 200

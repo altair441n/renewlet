@@ -5,6 +5,7 @@
  * 避免在 UI 组件之间传递宽松对象。
  *
  * 注意： AdminPatchUserPayload 必须与后端 adminPatchUserRequest、Zod schema 同步。
+ * newPassword 只用于管理员重置他人密码；当前用户改密必须走 /account/password 并校验当前密码。
  */
 import type { AdminUser, UserRole } from "@/lib/api/schemas/admin";
 

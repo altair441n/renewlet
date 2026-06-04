@@ -2,6 +2,7 @@ export const BUILT_IN_ICON_PROVIDERS = ["thesvg", "selfhst", "dashboardIcons"] a
 
 export type BuiltInIconProvider = (typeof BUILT_IN_ICON_PROVIDERS)[number];
 
+/** 单个内置图标来源的用户设置；variantsEnabled 控制同 provider 的多变体展开。 */
 export interface BuiltInIconSourceSetting {
   enabled: boolean;
   variantsEnabled: boolean;
@@ -20,10 +21,12 @@ export const DEFAULT_BUILT_IN_ICON_SOURCES: BuiltInIconSourceSettings = {
   dashboardIcons: { enabled: true, variantsEnabled: true },
 };
 
+/** 至少保留一个 provider 可用，避免 Logo/Icon 候选搜索只剩 favicon 弱备用。 */
 export function hasEnabledBuiltInIconSource(settings: BuiltInIconSourceSettings): boolean {
   return BUILT_IN_ICON_PROVIDERS.some((provider) => settings[provider].enabled);
 }
 
+/** 合并设置 patch 时只按 provider 局部覆盖，避免保存一个来源时重置其它来源开关。 */
 export function mergeBuiltInIconSourceSettings(
   base: BuiltInIconSourceSettings = DEFAULT_BUILT_IN_ICON_SOURCES,
   patch?: BuiltInIconSourceSettingsPatch,
@@ -37,6 +40,7 @@ export function mergeBuiltInIconSourceSettings(
   ])) as BuiltInIconSourceSettings;
 }
 
+/** 清理未知 provider/字段，保证 settings PATCH 不把 UI 临时字段带进持久化 JSON。 */
 export function cleanBuiltInIconSourceSettingsPatch(
   patch?: LooseBuiltInIconSourceSettingsPatch,
 ): BuiltInIconSourceSettingsPatch | undefined {

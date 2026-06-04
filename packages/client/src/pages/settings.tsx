@@ -1,8 +1,4 @@
-/**
- * 设置页路由装配层。
- *
- * 架构位置：SettingsScreen 已经包含 controller/presentation 组合；路由文件只保持懒加载边界清晰。
- */
+// SettingsScreen 聚合账号、通知、主题、日历 Feed 和自定义配置；路由入口保持薄层，避免页面级状态再分叉。
 import { SettingsScreen } from "@/modules/settings/presentation/settings-screen";
 
 export default function SettingsPage() {

@@ -1,5 +1,7 @@
 package main
 
+// 本文件测试 PB_ENCRYPTION_KEY 的部署前校验；32 字符约束失败时必须早停，避免运行后才损坏加密字段。
+
 import (
 	"fmt"
 	"strings"

@@ -1,4 +1,5 @@
 import { apiFetch } from "@/lib/api-client";
+import { withPocketBaseAuthGuard } from "@/lib/auth-session";
 import { settingsResponseSchema, settingsUpdateBodySchema, type ApiAppSettings } from "@/lib/api/schemas/settings";
 import { getApiLocale } from "@/i18n/api-locale";
 import { translate } from "@/i18n/messages";
@@ -17,6 +18,11 @@ function clearLegacyWebhookExample(value: string, legacyExample: string) {
   return value.trim() === legacyExample ? "" : value;
 }
 
+/**
+ * 将远端 settings JSON 收敛为前端完整设置。
+ *
+ * 该函数同时服务 PocketBase JSON 字段和 Worker settings_json；不要在页面里绕过它直接消费远端值。
+ */
 export function normalizeSettings(value: unknown): AppSettings {
   const parsed = settingsUpdateBodySchema.safeParse(value);
   const defaults = { ...DEFAULT_SETTINGS, timezone: getSystemTimeZone("UTC") };
@@ -37,6 +43,7 @@ export function normalizeSettings(value: unknown): AppSettings {
   };
 }
 
+/** 设置服务按运行面分流读写，输出始终是前端 AppSettings 完整对象。 */
 export const settingsService = {
   async get(): Promise<AppSettings> {
     const userId = getCurrentUserId();
@@ -45,10 +52,10 @@ export const settingsService = {
       const data = await apiFetch("/api/app/settings", settingsResponseSchema);
       return normalizeSettings(data.settings);
     }
-    const rows = await pb.collection("settings").getFullList<RecordModel>({
+    const rows = await withPocketBaseAuthGuard(pb.collection("settings").getFullList<RecordModel>({
       filter: `user = "${userId}"`,
       perPage: 1,
-    });
+    }));
     return normalizeSettings(rows[0]?.["settings"]);
   },
 
@@ -64,14 +71,14 @@ export const settingsService = {
       });
       return normalizeSettings(data.settings);
     }
-    const rows = await pb.collection("settings").getFullList<RecordModel>({
+    const rows = await withPocketBaseAuthGuard(pb.collection("settings").getFullList<RecordModel>({
       filter: `user = "${userId}"`,
       perPage: 1,
-    });
+    }));
     if (rows[0]) {
-      await pb.collection("settings").update(rows[0].id, { settings: next });
+      await withPocketBaseAuthGuard(pb.collection("settings").update(rows[0].id, { settings: next }));
     } else {
-      await pb.collection("settings").create({ user: userId, settings: next });
+      await withPocketBaseAuthGuard(pb.collection("settings").create({ user: userId, settings: next }));
     }
     return next;
   },

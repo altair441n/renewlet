@@ -2,6 +2,7 @@ import type { ApiAppSettings } from "./schemas/settings";
 import { DEFAULT_BUILT_IN_ICON_SOURCES } from "./built-in-icons";
 import { DEFAULT_NOTIFICATION_REMINDER_DAYS } from "./runtime";
 
+/** 首次写入或空库读取时允许由运行面注入 locale/timezone，其它默认值保持产品一致。 */
 export interface DefaultSettingsOptions {
   locale?: ApiAppSettings["locale"];
   timezone?: string;
@@ -9,6 +10,7 @@ export interface DefaultSettingsOptions {
 
 export const DEFAULT_CUSTOM_THEME_COLOR = { h: 160, s: 84, l: 39 } as const;
 
+/** 生成完整设置对象；调用方不应手写部分 defaults 后再让 schema 静默补齐。 */
 export function createDefaultAppSettings(options: DefaultSettingsOptions = {}): ApiAppSettings {
   // 默认设置同时服务 PocketBase 首次写入和 D1 空库读取；不能依赖某一端私有字段。
   return {

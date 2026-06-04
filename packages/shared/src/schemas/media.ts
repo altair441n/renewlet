@@ -14,12 +14,22 @@ export const mediaCandidateSourceSchema = z.enum(["builtIn", "favicon"]);
 
 export const mediaCandidateConfidenceSchema = z.enum(["exact", "strong", "medium", "weak"]);
 
+/**
+ * 候选解析输入只包含用户主动提供的名称/站点。
+ *
+ * 后端不会抓取用户 URL 或 HTML；favicon 候选只生成可由浏览器加载的确定性图片地址。
+ */
 export const mediaCandidateResolveItemSchema = z.object({
   id: z.string().trim().min(1).max(120),
   name: z.string().trim().min(1).max(120),
   website: z.string().trim().max(500).optional(),
 }).strict();
 
+/**
+ * Logo/Icon 候选的统一响应项。
+ *
+ * provider/variant 是内置图标来源设置和排序预算的契约，Docker 与 Cloudflare 必须同时提供。
+ */
 export const mediaCandidateSchema = z.object({
   id: z.string().min(1),
   kind: mediaCandidateKindSchema,

@@ -31,6 +31,7 @@ export function SubscriptionPaymentMethodSelect({
           <SelectItem key={method.value} value={method.value}>
             <div className="flex items-center gap-2">
               {method.icon ? (
+                // 支付方式图标可能是私有上传资产，必须走 AuthorizedImage 注入当前运行面的认证头。
                 <AuthorizedImage src={method.icon} alt="" className="w-4 h-4 object-contain" />
               ) : (
                 <CreditCard className="w-4 h-4 text-muted-foreground" />

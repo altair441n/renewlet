@@ -1,3 +1,4 @@
+// 配置管理弹窗测试保护排序、启用、只读和上传中禁保存，避免自定义配置 UI 绕过 domain 策略。
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ComponentProps } from "react";

@@ -112,6 +112,7 @@ function responseFromError(error: unknown): Record<string, unknown> | null {
 }
 
 function localizedFromRecord(error: Record<string, unknown>): string | null {
+  // API message 由服务端 catalog 本地化；前端只把稳定 code 映射到自己的 Lingui 文案。
   const code = stringFromRecord(error, ["code"]);
   const codeMessage = localizeErrorCode(code);
   if (codeMessage) return codeMessage;

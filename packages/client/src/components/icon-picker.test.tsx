@@ -1,3 +1,4 @@
+// IconPicker 测试覆盖内置候选、上传裁剪和暂存状态，防止自定义配置图标把 data URL 写入持久层。
 import type { ReactNode } from "react";
 import { render as renderComponent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";

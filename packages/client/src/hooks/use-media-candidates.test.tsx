@@ -1,3 +1,4 @@
+// 媒体候选 hook 测试保护搜索去重、blocked 集合和 resolver 响应合并策略。
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useMediaCandidates } from "./use-media-candidates";

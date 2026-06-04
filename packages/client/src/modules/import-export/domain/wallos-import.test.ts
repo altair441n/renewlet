@@ -1,3 +1,4 @@
+// Wallos 导入测试保护 JSON/API/ZIP/SQLite 多来源映射，避免低保真路径误标成高置信导入。
 import { describe, expect, it } from "vitest";
 import { DEFAULT_CUSTOM_CONFIG } from "@/types/config";
 import { DEFAULT_SETTINGS } from "@/types/subscription";
@@ -5,6 +6,7 @@ import { assertDateOnly } from "@/lib/time/date-only";
 import { translate } from "@/i18n/messages";
 import { parseJsonText } from "./wallos-import";
 import { formatImportMessage } from "./import-message-format";
+import { importApplyRequestSchema, importPayloadSchema } from "@/lib/api/schemas/import-export";
 
 const context = {
   config: DEFAULT_CUSTOM_CONFIG,
@@ -13,6 +15,59 @@ const context = {
 };
 
 describe("wallos import", () => {
+  it("keeps preview large but caps apply requests at 200 subscriptions", () => {
+    const subscription = {
+      name: "Bulk",
+      logo: null,
+      price: 1,
+      currency: "USD",
+      billingCycle: "monthly",
+      customDays: null,
+      category: "productivity",
+      status: "active",
+      paymentMethod: null,
+      startDate: "2026-05-21",
+      nextBillingDate: "2026-06-21",
+      autoCalculateNextBillingDate: true,
+      trialEndDate: null,
+      website: null,
+      notes: null,
+      tags: [],
+      reminderDays: 3,
+      repeatReminderEnabled: false,
+      repeatReminderInterval: "1h",
+      repeatReminderWindow: "72h",
+      extra: { import: { source: "wallos", sourceId: "bulk", confidence: "high" } },
+    };
+    const previewPayload = {
+      source: "wallos",
+      subscriptions: Array.from({ length: 201 }, (_, index) => ({
+        ...subscription,
+        extra: { import: { source: "wallos", sourceId: `bulk-${index}`, confidence: "high" } },
+      })),
+    };
+
+    expect(importPayloadSchema.safeParse(previewPayload).success).toBe(true);
+    expect(importApplyRequestSchema.safeParse({ payload: previewPayload, conflictMode: "skip" }).success).toBe(false);
+  });
+
+  it("routes Wallos UI arrays to Wallos display import before any Renewlet legacy fallback", async () => {
+    const prepared = await parseJsonText(JSON.stringify([
+      {
+        Name: "Wallos UI Row",
+        Price: "$12.00",
+        "Payment Cycle": "Monthly",
+        "Next Payment": "2026-06-01",
+        Category: "Developer",
+        "Payment Method": "Visa",
+      },
+    ]), context);
+
+    expect(prepared.payload.source).toBe("wallos");
+    expect(prepared.payload.subscriptions[0]?.name).toBe("Wallos UI Row");
+    expect(prepared.warnings).toContain("IMPORT_WARNING_WALLOS_DISPLAY_LOW_CONFIDENCE");
+  });
+
   it("maps Wallos API subscriptions with source ids and custom cycles", async () => {
     const prepared = await parseJsonText(JSON.stringify({
       success: true,

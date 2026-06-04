@@ -1,5 +1,7 @@
 package main
 
+// 本文件测试通知内容、重复提醒、时区调度和外发 URL 防护的核心业务口径。
+
 import (
 	"encoding/json"
 	"strconv"

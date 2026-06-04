@@ -1,3 +1,7 @@
+// Package static 嵌入 Go/PocketBase 运行面需要直接随二进制发布的静态资源。
+//
+// Docker 默认链路会先构建 Vite 前端并同步到 public，再编译 server；这里的 embed 是运行时
+// 不依赖外部文件系统的部署边界，也是页面内自更新替换二进制后仍能服务前端的前提。
 package static
 
 import "embed"
@@ -8,8 +12,14 @@ import "embed"
 //go:embed all:public
 var Files embed.FS
 
+// BuiltInIconsIndex 是内置图标离线索引。
+// 该文件由脚本从 packages/client/src/lib/thesvg-index.json 同步生成，不应手写修改。
+//
 //go:embed data/built-in-icons-index.json
 var BuiltInIconsIndex []byte
 
+// MediaResolverConfig 是 Logo/Icon 候选解析的共享配置快照。
+// Go 后端与 shared 包必须使用同一份 JSON，避免 Docker 与 Cloudflare 候选排序和预算漂移。
+//
 //go:embed data/media-resolver-config.json
 var MediaResolverConfig []byte

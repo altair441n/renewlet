@@ -4,6 +4,7 @@ const tagSeparatorPattern = /[、，,;；\n]+/g;
 const maxSubscriptionTagLength = 40;
 
 export function createTempPrefix(testInfo: TestInfo): string {
+  // 线上巡检使用可识别前缀，失败后的清理脚本能精准删除本轮临时订阅而不碰真实用户数据。
   const projectName = testInfo.project.name.replace(/[^a-z0-9]+/gi, "-").toLowerCase();
   return `e2e-prod-${Date.now()}-${projectName}-${testInfo.workerIndex}`;
 }
@@ -132,6 +133,7 @@ export async function cleanupTemporarySubscriptions(page: Page, prefix: string) 
     }
     if (!token) return { deletedNames: [], skippedReason: "missing-token" };
 
+    // 清理请求显式使用当前浏览器 session token，验证 Worker 的 Bearer auth 和 D1 owner 过滤仍然生效。
     const headers = { Authorization: `Bearer ${token}`, "content-type": "application/json" };
     const listResponse = await fetch("/api/app/subscriptions", { headers });
     if (!listResponse.ok) {

@@ -1,3 +1,4 @@
+// 图片裁剪弹窗测试保护 canvas 导出、缩放/平移状态和关闭清理，避免上传链路拿到过期裁剪结果。
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { ImageCropDialog } from "./image-crop-dialog";

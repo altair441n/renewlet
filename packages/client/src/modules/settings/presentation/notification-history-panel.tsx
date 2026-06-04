@@ -30,8 +30,10 @@ import {
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useMediaQuery } from "@/hooks/use-media-query";
+import { formatTimeZoneOffset } from "@/lib/time/time-zone";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/i18n/I18nProvider";
+import { CHANNEL_LABELS, type NotificationChannel } from "@/types/subscription";
 import type {
   NotificationJobResult,
   NotificationHistoryJob,
@@ -55,8 +57,8 @@ type NotificationHistoryPanelProps = {
   refetch: () => void;
 };
 
-function formatSchedule(date: string, time: string, timeZone: string) {
-  return `${date} ${time} · ${timeZone}`;
+function formatSchedule(date: string, time: string, timeZone: string, scheduledInstantUtc: string) {
+  return `${date} ${time} (${formatTimeZoneOffset(timeZone, new Date(scheduledInstantUtc))})`;
 }
 
 function repeatIntervalHours(interval: string) {
@@ -101,6 +103,16 @@ function getMessageContent(job: NotificationHistoryJob) {
   return hasCronResult(job.result) ? job.result.message.content : "";
 }
 
+function formatNotificationChannel(channel: NotificationChannel, label: ReturnType<typeof useI18n>["label"]) {
+  return label(CHANNEL_LABELS[channel]);
+}
+
+function formatNotificationChannels(channels: NotificationChannel[], label: ReturnType<typeof useI18n>["label"], emptyLabel: string) {
+  return channels.length > 0
+    ? channels.map((channel) => formatNotificationChannel(channel, label)).join(", ")
+    : emptyLabel;
+}
+
 function SummaryValue({ label, value, muted }: { label: string; value: string; muted?: boolean }) {
   return (
     <div className="min-w-0 rounded-lg bg-secondary/50 p-3">
@@ -125,7 +137,12 @@ function UpcomingBatchCard({ batch }: { batch: UpcomingNotificationBatch }) {
       <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
         <TruncatedTooltipText
           as="div"
-          text={formatSchedule(batch.scheduledLocalDate, batch.scheduledLocalTime, batch.timeZone)}
+          text={formatSchedule(
+            batch.scheduledLocalDate,
+            batch.scheduledLocalTime,
+            batch.timeZone,
+            batch.scheduledInstantUtc,
+          )}
           className="min-w-0 flex-1 text-sm font-medium text-foreground"
         />
         <Badge variant="outline" className="shrink-0 border-border text-muted-foreground">
@@ -212,7 +229,12 @@ function HistoryRow({ job, selected, onSelect }: { job: NotificationHistoryJob; 
       <div className="min-w-0">
         <TruncatedTooltipText
           as="div"
-          text={formatSchedule(job.scheduledLocalDate, job.scheduledLocalTime, job.timeZone)}
+          text={formatSchedule(
+            job.scheduledLocalDate,
+            job.scheduledLocalTime,
+            job.timeZone,
+            job.scheduledInstantUtc,
+          )}
           className="text-sm font-medium text-foreground"
         />
         <TruncatedTooltipText as="div" text={reason} className="mt-1 text-xs text-muted-foreground" />
@@ -228,27 +250,28 @@ function HistoryRow({ job, selected, onSelect }: { job: NotificationHistoryJob; 
 }
 
 function HistoryDetail({ job, className, testId }: { job: NotificationHistoryJob; className?: string; testId?: string }) {
-  const { t, formatDateTime } = useI18n();
+  const { t, label, formatDateTime } = useI18n();
   const channels = getResultChannels(job);
   const content = getMessageContent(job);
   const failed = channels.failed;
   const attempted = channels.attempted;
   const succeeded = channels.succeeded;
+  const emptyChannelsLabel = t("common.none");
 
   return (
     <div className={cn("min-w-0 rounded-lg border border-border bg-secondary/30 p-3 sm:p-4", className)} data-testid={testId}>
       <div className="grid gap-3 sm:grid-cols-2">
         <SummaryValue label={t("notification.createdAt")} value={formatDateTime(job.createdAt, { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })} />
         <SummaryValue label={t("notification.updatedAt")} value={formatDateTime(job.updatedAt, { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })} />
-        <SummaryValue label={t("notification.attemptedChannels")} value={Array.isArray(attempted) && attempted.length > 0 ? attempted.join(", ") : t("common.none")} />
-        <SummaryValue label={t("notification.succeededChannels")} value={Array.isArray(succeeded) && succeeded.length > 0 ? succeeded.join(", ") : t("common.none")} />
+        <SummaryValue label={t("notification.attemptedChannels")} value={formatNotificationChannels(attempted, label, emptyChannelsLabel)} />
+        <SummaryValue label={t("notification.succeededChannels")} value={formatNotificationChannels(succeeded, label, emptyChannelsLabel)} />
       </div>
 
       {Array.isArray(failed) && failed.length > 0 ? (
         <div className="mt-4 rounded-lg border border-destructive/20 bg-destructive/5 p-3 text-sm text-destructive">
           {failed.map((item, index) => (
             <div key={index} className="break-words">
-              {item.channel}：{item.error}
+              {formatNotificationChannel(item.channel, label)}：{item.error}
             </div>
           ))}
         </div>
@@ -290,7 +313,12 @@ function HistoryDetailDrawer({
                   <span className="min-w-0 truncate">{t("notification.historyDetailTitle")}</span>
                 </Drawer.Title>
                 <Drawer.Description className="mt-1 truncate text-left text-xs text-muted-foreground">
-                  {formatSchedule(job.scheduledLocalDate, job.scheduledLocalTime, job.timeZone)}
+                  {formatSchedule(
+                    job.scheduledLocalDate,
+                    job.scheduledLocalTime,
+                    job.timeZone,
+                    job.scheduledInstantUtc,
+                  )}
                 </Drawer.Description>
               </div>
               <Drawer.Close asChild>
@@ -382,7 +410,18 @@ export function NotificationHistoryPanel({
         <div className="grid min-w-0 flex-1 gap-3 sm:grid-cols-3">
           <SummaryValue
             label={t("notification.nextCheck")}
-            value={data ? formatSchedule(data.summary.nextCheck.scheduledLocalDate, data.summary.nextCheck.scheduledLocalTime, data.summary.nextCheck.timeZone) : isLoading ? t("common.loading") : t("common.unknown")}
+            value={
+              data
+                ? formatSchedule(
+                  data.summary.nextCheck.scheduledLocalDate,
+                  data.summary.nextCheck.scheduledLocalTime,
+                  data.summary.nextCheck.timeZone,
+                  data.summary.nextCheck.scheduledInstantUtc,
+                )
+                : isLoading
+                  ? t("common.loading")
+                  : t("common.unknown")
+            }
             muted={!data}
           />
           <SummaryValue
@@ -400,7 +439,7 @@ export function NotificationHistoryPanel({
               {t("notification.viewScheduleHistory")}
             </Button>
           </DialogTrigger>
-          <DialogContent className="flex min-h-0 max-w-5xl flex-col overflow-hidden border-border bg-card p-0">
+          <DialogContent layout="frame" className="h5-dialog-frame flex min-h-0 max-w-5xl flex-col overflow-hidden border-border bg-card p-0">
             <div className="flex min-h-0 flex-1 flex-col">
               <DialogHeader className="border-b border-border px-4 py-5 pr-12 sm:px-6 sm:pr-14">
                 <DialogTitle className="flex items-center gap-2 text-left">

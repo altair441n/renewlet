@@ -1,3 +1,4 @@
+// 标签输入测试保护分隔符、建议列表、长度上限和 blur 提交流程，避免复合输入在保存前丢标签。
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";

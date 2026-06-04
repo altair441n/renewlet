@@ -1,3 +1,4 @@
+// 订阅状态测试保护 expired 正式语义和旧 active/trial 读取侧转换，避免业务页面各自判断过期。
 import { describe, expect, it } from "vitest";
 import { assertDateOnly } from "@/lib/time/date-only";
 import type { Subscription } from "@/types/subscription";

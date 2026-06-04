@@ -1,5 +1,6 @@
+// 订阅 schema 测试保护 logo 私有资产路径、http(s) 外链和 date-only 字段的运行时契约。
 import { describe, expect, it } from "vitest";
-import { apiSubscriptionSchema, subscriptionCreateBodySchema } from "./subscriptions";
+import { apiSubscriptionSchema, subscriptionsListResponseSchema, subscriptionCreateBodySchema } from "./subscriptions";
 
 const validSubscriptionCreateBody = {
   name: "Logo Test",
@@ -22,6 +23,7 @@ const validSubscriptionCreateBody = {
   repeatReminderEnabled: false,
   repeatReminderInterval: "1h",
   repeatReminderWindow: "72h",
+  pinned: false,
 };
 
 const validSubscriptionResponseBody = {
@@ -32,6 +34,7 @@ const validSubscriptionResponseBody = {
   billingCycle: validSubscriptionCreateBody.billingCycle,
   category: validSubscriptionCreateBody.category,
   status: validSubscriptionCreateBody.status,
+  pinned: validSubscriptionCreateBody.pinned,
   startDate: validSubscriptionCreateBody.startDate,
   nextBillingDate: validSubscriptionCreateBody.nextBillingDate,
   autoCalculateNextBillingDate: validSubscriptionCreateBody.autoCalculateNextBillingDate,
@@ -153,5 +156,17 @@ describe("subscription API schemas", () => {
       customDays: null,
       autoCalculateNextBillingDate: false,
     }).success).toBe(true);
+  });
+
+  it("requires paginated subscription list responses", () => {
+    expect(subscriptionsListResponseSchema.safeParse({
+      subscriptions: [validSubscriptionResponseBody],
+      nextCursor: null,
+      total: 1,
+    }).success).toBe(true);
+
+    expect(subscriptionsListResponseSchema.safeParse({
+      subscriptions: [validSubscriptionResponseBody],
+    }).success).toBe(false);
   });
 });

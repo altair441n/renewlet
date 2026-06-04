@@ -1,3 +1,4 @@
+// LogoPicker 测试覆盖私有资产、远端 URL、内置候选和上传状态，防止订阅 logo 契约回退到 data URL。
 import type { ReactNode } from "react";
 import { render as renderComponent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";

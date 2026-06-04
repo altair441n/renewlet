@@ -1,3 +1,4 @@
+// DropdownMenu primitive 测试保护移动端 overlay 事件抑制，避免触控菜单关闭后把点击透传到底层页面。
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";

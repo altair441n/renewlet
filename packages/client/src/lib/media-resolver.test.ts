@@ -1,3 +1,4 @@
+// media-resolver 测试保护内置图标索引与 shared resolver 配置的匹配口径，避免自动候选排序漂移。
 import { describe, expect, it } from "vitest";
 import {
   clampMediaCandidateLimit,

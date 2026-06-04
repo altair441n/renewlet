@@ -23,6 +23,13 @@ import { messages as enUSNotificationMessages } from "@/i18n/catalogs/en-US/noti
 import { messages as enUSSettingsMessages } from "@/i18n/catalogs/en-US/settings.po";
 import { messages as enUSSubscriptionMessages } from "@/i18n/catalogs/en-US/subscription.po";
 
+/**
+ * 静态 catalog 是非 React 同步逻辑的翻译入口。
+ *
+ * API 错误映射、service 层 fallback 和导入解析不能依赖组件树里的 LinguiProvider，
+ * 因此这里用构建期 `.po` 产物创建独立实例，避免恢复手写双语 map。
+ */
+
 const zhCNMessages = {
   ...zhCNCommonMessages,
   ...zhCNLegalMessages,
@@ -72,6 +79,7 @@ export function staticCatalogMessage(locale: Locale, key: MessageKey): string {
   return String(STATIC_CATALOGS[locale][key] ?? key);
 }
 
+/** translateStaticMessage 服务于 service/domain 这类非 React 调用点，参数格式仍由 Lingui 处理。 */
 export function translateStaticMessage(locale: Locale, key: MessageKey, params: MessageParams = {}): string {
   if (!(key in STATIC_CATALOGS[locale])) return key;
   return STATIC_I18N[locale]._(key, params);

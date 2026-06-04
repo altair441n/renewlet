@@ -1,3 +1,4 @@
+// legal domain 面向公开法务页面，必须保持未登录可访问路由的文案来源独立。
 import { msg } from "@lingui/core/macro";
 
 export const messages = [

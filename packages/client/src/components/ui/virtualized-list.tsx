@@ -22,9 +22,13 @@ import { cn } from "@/lib/utils";
 type VirtualItemKey = string | number | bigint;
 
 type VirtualizedListProps = {
+  /** 总项数来自调用方筛选后的稳定列表；虚拟器不感知业务分页。 */
   count: number;
+  /** 估算高度是滚动体验边界，必须覆盖动态内容的常见最大值，避免滚动条跳动。 */
   estimateSize: (index: number) => number;
+  /** key 必须来自业务稳定 id，不能用可变展示文案。 */
   getItemKey: (index: number) => VirtualItemKey;
+  /** Renewlet 的滚动根通常是 #root 或 Dialog body，显式传入可避免 window 滚动假设。 */
   getScrollElement: () => HTMLElement | null;
   renderItem: (index: number, virtualItem: VirtualItem) => ReactNode;
   className?: string;
@@ -67,6 +71,7 @@ function getOffsetTopWithinScrollElement(container: HTMLElement, scrollElement: 
   return offsetTop;
 }
 
+/** VirtualizedList 封装 TanStack Virtual 与 Renewlet 固定滚动根之间的 scrollMargin 适配。 */
 export function VirtualizedList({
   count,
   estimateSize,
@@ -130,6 +135,7 @@ export function VirtualizedList({
     const scrollElement = getScrollElement();
     if (!container || !scrollElement || typeof ResizeObserver === "undefined") return undefined;
 
+    // 头部/筛选区高度变化会改 scrollMargin；同时观察容器和滚动根，避免虚拟项整体漂移。
     const observer = new ResizeObserver(() => measureScrollMargin());
     observer.observe(container);
     observer.observe(scrollElement);

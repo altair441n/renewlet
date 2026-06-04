@@ -15,17 +15,17 @@
 import { useCallback, useMemo, useState } from 'react';
 import { Header } from '@/components/header';
 import { BackToTopFloatButton } from '@/components/back-to-top-float-button';
-import { SubscriptionCard } from '@/components/subscription-card';
+import { SubscriptionCard, type SubscriptionCardLookup } from '@/components/subscription-card';
 import { AddSubscriptionDialog } from '@/components/add-subscription-dialog';
 import { EditSubscriptionDialog } from '@/components/edit-subscription-dialog';
 import { ImportDataDialog } from '@/components/import-data-dialog';
-import { SubscriptionListSkeleton } from '@/components/loading-skeleton';
+import { SubscriptionsPageSkeleton } from '@/components/loading-skeleton';
 import { VirtualizedList } from '@/components/ui/virtualized-list';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import type { Category, Subscription, SubscriptionStatus } from '@/types/subscription';
-import { DEFAULT_SETTINGS } from '@/types/subscription';
+import { DEFAULT_NOTIFICATION_REMINDER_DAYS, DEFAULT_SETTINGS } from '@/types/subscription';
 import { Search, Plus, Grid, List as ListIcon, Download, Upload } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -34,7 +34,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { useSubscriptions } from '@/hooks/use-subscriptions';
+import { useInfiniteSubscriptions } from '@/hooks/use-subscriptions';
 import { useCustomConfig } from '@/contexts/CustomConfigContext';
 import { useSettings } from '@/hooks/use-settings';
 import { useSubscriptionCrud } from '@/modules/subscriptions/application/use-subscription-crud';
@@ -53,7 +53,7 @@ import {
 
 /** 空订阅数组：用于在数据未加载完成时提供稳定引用，避免 useMemo 依赖抖动。 */
 const EMPTY_SUBSCRIPTIONS: Subscription[] = [];
-const SUBSCRIPTION_VIRTUALIZATION_THRESHOLD = 60;
+// 虚拟列表按“行”估算高度；网格模式一行可能包含 2-3 张卡片，估算值要覆盖最高卡片避免滚动跳动。
 const SUBSCRIPTION_GRID_ROW_GAP = 16;
 const SUBSCRIPTION_GRID_ROW_ESTIMATE = 184;
 const SUBSCRIPTION_LIST_ROW_ESTIMATE = 142;
@@ -93,43 +93,31 @@ type SubscriptionGridProps = {
   subscriptions: Subscription[];
   viewMode: "grid" | "list";
   timeZone: string;
+  inheritedReminderDays: number;
+  categoryByValue: SubscriptionCardLookup;
+  paymentMethodByValue: SubscriptionCardLookup;
   onEdit: (id: string) => void;
   onDelete: (id: string) => void;
+  onTogglePinned: (id: string) => void;
 };
 
-function SubscriptionGrid({ subscriptions, viewMode, timeZone, onEdit, onDelete }: SubscriptionGridProps) {
+function SubscriptionGrid({
+  subscriptions,
+  viewMode,
+  timeZone,
+  inheritedReminderDays,
+  categoryByValue,
+  paymentMethodByValue,
+  onEdit,
+  onDelete,
+  onTogglePinned,
+}: SubscriptionGridProps) {
   const isTwoColumnGrid = useMediaQuery("(min-width: 640px)");
   const isThreeColumnGrid = useMediaQuery("(min-width: 1024px)");
   const columnCount = getSubscriptionColumnCount(viewMode, isTwoColumnGrid, isThreeColumnGrid);
   const rows = useMemo(() => chunkSubscriptions(subscriptions, columnCount), [columnCount, subscriptions]);
 
-  if (subscriptions.length <= SUBSCRIPTION_VIRTUALIZATION_THRESHOLD) {
-    return (
-      <div className={cn(
-        "grid items-stretch gap-4",
-        viewMode === 'grid'
-          ? "sm:grid-cols-2 lg:grid-cols-3"
-          : "grid-cols-1"
-      )}>
-        {subscriptions.map((sub, index) => (
-          <div
-            key={sub.id}
-            className="h-full animate-fade-in"
-            style={{ animationDelay: `${index * 30}ms` }}
-          >
-            <SubscriptionCard
-              subscription={sub}
-              viewMode={viewMode}
-              timeZone={timeZone}
-              onEdit={onEdit}
-              onDelete={onDelete}
-            />
-          </div>
-        ))}
-      </div>
-    );
-  }
-
+  // 分页列表从首屏起固定使用虚拟化，避免“加载更多”时切换 DOM/Virtualizer 模型导致浏览器滚动锚点漂移。
   return (
     <VirtualizedList
       count={rows.length}
@@ -152,8 +140,12 @@ function SubscriptionGrid({ subscriptions, viewMode, timeZone, onEdit, onDelete 
               subscription={sub}
               viewMode={viewMode}
               timeZone={timeZone}
+              inheritedReminderDays={inheritedReminderDays}
+              categoryByValue={categoryByValue}
+              paymentMethodByValue={paymentMethodByValue}
               onEdit={onEdit}
               onDelete={onDelete}
+              onTogglePinned={onTogglePinned}
             />
           </div>
         ));
@@ -163,14 +155,18 @@ function SubscriptionGrid({ subscriptions, viewMode, timeZone, onEdit, onDelete 
 }
 
 /** 订阅列表页组件。 */
-const Subscriptions = () => {
-  const subscriptionsQuery = useSubscriptions();
-  const subscriptions = subscriptionsQuery.data ?? EMPTY_SUBSCRIPTIONS;
+  const Subscriptions = () => {
+  const subscriptionsQuery = useInfiniteSubscriptions();
+  const subscriptions = subscriptionsQuery.subscriptions ?? EMPTY_SUBSCRIPTIONS;
+  const { fetchNextPage } = subscriptionsQuery;
   const settingsQuery = useSettings();
   const timeZone = settingsQuery.data?.timezone ?? "UTC";
   const defaultCurrency = settingsQuery.data?.defaultCurrency ?? "CNY";
   const exchangeRateProvider = settingsQuery.data?.exchangeRateProvider;
+  const inheritedReminderDays = settingsQuery.data?.notificationReminderDays ?? DEFAULT_NOTIFICATION_REMINDER_DAYS;
   const { config } = useCustomConfig();
+  const categoryByValue = useMemo(() => new Map(config.categories.map((category) => [category.value, category])), [config.categories]);
+  const paymentMethodByValue = useMemo(() => new Map(config.paymentMethods.map((method) => [method.value, method])), [config.paymentMethods]);
   const { t, label, locale } = useI18n();
   const { convert } = useExchangeRates(exchangeRateProvider);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
@@ -182,6 +178,7 @@ const Subscriptions = () => {
     handleAddSubscription,
     handleDeleteSubscription,
     handleEditSubscription,
+    handleTogglePinnedSubscription,
     handleSaveSubscription,
     handleEditDialogOpenChange,
   } = useSubscriptionCrud(subscriptions);
@@ -206,6 +203,7 @@ const Subscriptions = () => {
   const settings = settingsQuery.data ?? DEFAULT_SETTINGS;
   const { exportToJSON, exportToJSONWithSecrets, exportToCSV } =
     useSubscriptionExport(filteredSubscriptions, subscriptions, config, settings, locale, timeZone);
+  // 筛选标签来自用户配置，可能被删除或禁用；找不到配置时仍显示原始值，避免筛选状态变成空白。
   const categoryFilterLabel =
     categoryFilter === "all"
       ? t("subscriptions.allCategories")
@@ -225,6 +223,9 @@ const Subscriptions = () => {
   const clearSelectedTags = useCallback(() => {
     setSelectedTags([]);
   }, [setSelectedTags]);
+  const handleLoadMore = useCallback(() => {
+    void fetchNextPage();
+  }, [fetchNextPage]);
 
   // 首次加载订阅列表时展示骨架屏（筛选条 + 卡片网格占位）。
   if (subscriptionsQuery.isPending) {
@@ -232,11 +233,7 @@ const Subscriptions = () => {
       <div className="app-page bg-background">
         <Header onAddSubscription={handleAddSubscription} availableTags={allTags} />
         <main className="app-main mx-auto max-w-7xl">
-          <div className="mb-8">
-            <div className="h-8 w-32 bg-muted rounded animate-pulse mb-2" />
-            <div className="h-4 w-48 bg-muted rounded animate-pulse" />
-          </div>
-          <SubscriptionListSkeleton />
+          <SubscriptionsPageSkeleton withPageShell={false} />
         </main>
       </div>
     );
@@ -247,7 +244,6 @@ const Subscriptions = () => {
       <Header onAddSubscription={handleAddSubscription} availableTags={allTags} />
 
       <main className="app-main mx-auto max-w-7xl">
-        {/* 页面标题 */}
         <div className="mb-8 flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-foreground">{t("subscriptions.title")}</h1>
@@ -301,7 +297,6 @@ const Subscriptions = () => {
           </div>
         </div>
 
-        {/* 筛选器 */}
         <div className={cn("mb-6 rounded-xl border border-border bg-card p-5", isMobileTagFilter ? "grid gap-3" : "grid gap-4")}>
           {isMobileTagFilter ? (
             <>
@@ -479,7 +474,6 @@ const Subscriptions = () => {
           )}
         </div>
 
-        {/* 订阅网格/列表 */}
         {filteredSubscriptions.length === 0 ? (
           <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border bg-card/50 py-16">
             <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-secondary">
@@ -503,13 +497,32 @@ const Subscriptions = () => {
             )}
           </div>
         ) : (
-          <SubscriptionGrid
-            subscriptions={filteredSubscriptions}
-            viewMode={viewMode}
-            timeZone={timeZone}
-            onEdit={handleEditSubscription}
-            onDelete={handleDeleteSubscription}
-          />
+          <>
+            <SubscriptionGrid
+              subscriptions={filteredSubscriptions}
+              viewMode={viewMode}
+              timeZone={timeZone}
+              inheritedReminderDays={inheritedReminderDays}
+              categoryByValue={categoryByValue}
+              paymentMethodByValue={paymentMethodByValue}
+              onEdit={handleEditSubscription}
+              onDelete={handleDeleteSubscription}
+              onTogglePinned={handleTogglePinnedSubscription}
+            />
+            {subscriptionsQuery.hasNextPage && (
+              <div className="mt-6 flex justify-center [overflow-anchor:none]" data-testid="subscriptions-load-more-row">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleLoadMore}
+                  disabled={subscriptionsQuery.isFetchingNextPage}
+                  className="min-w-32 border-border"
+                >
+                  {subscriptionsQuery.isFetchingNextPage ? t("common.loading") : t("notification.loadMore")}
+                </Button>
+              </div>
+            )}
+          </>
         )}
       </main>
 

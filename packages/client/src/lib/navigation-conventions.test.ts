@@ -1,3 +1,4 @@
+// 导航约定测试扫描源码，防止内部页面误用原生 a 标签绕过 React Router 和 public route 清单。
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";

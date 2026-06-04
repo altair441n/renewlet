@@ -1,3 +1,4 @@
+// 通知历史面板测试保护虚拟列表、详情展开和失败渠道展示，避免复杂 result union 被 UI 当成宽松对象。
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -82,7 +83,7 @@ function createHistoryResponse(reason: string): NotificationHistoryResponse {
       },
       channels: {
         attempted: ["email"],
-        succeeded: [],
+        succeeded: ["telegram", "webhook"],
         failed: [{ channel: "email", error: reason }],
       },
     },
@@ -217,6 +218,29 @@ describe("NotificationHistoryPanel", () => {
     Reflect.deleteProperty(window, "matchMedia");
   });
 
+  it("shows the next check time zone as a UTC offset", () => {
+    render(
+      <TooltipProvider delayDuration={0}>
+        <NotificationHistoryPanel
+          data={createHistoryResponse("smtp: temporary failure")}
+          isLoading={false}
+          isFetching={false}
+          error={null}
+          status="all"
+          setStatus={vi.fn()}
+          loadMore={vi.fn()}
+          refetch={vi.fn()}
+        />
+      </TooltipProvider>,
+    );
+
+    const nextCheck = screen.getByText("下一次检查").parentElement;
+
+    expect(nextCheck).not.toBeNull();
+    expect(within(nextCheck!).getByText("2026-05-16 06:33 (UTC+8)")).toBeInTheDocument();
+    expect(within(nextCheck!).queryByText(/Asia\/Shanghai/)).not.toBeInTheDocument();
+  });
+
   it("shows full history row text in a tooltip when truncated", async () => {
     const user = userEvent.setup();
     const reason = "smtp: 550 mailbox unavailable with a very long provider diagnostic message";
@@ -242,6 +266,11 @@ describe("NotificationHistoryPanel", () => {
     expect(screen.getByText("调度尝试 2 次")).toBeInTheDocument();
     expect(screen.getByText("累计尝试渠道")).toBeInTheDocument();
     expect(screen.getByText("累计成功渠道")).toBeInTheDocument();
+    const detail = screen.getByTestId("notification-history-desktop-detail");
+    expect(within(detail).getByText("邮件通知")).toBeInTheDocument();
+    expect(within(detail).getByText("Telegram, Webhook 通知")).toBeInTheDocument();
+    expect(within(detail).getByText(`邮件通知：${reason}`)).toBeInTheDocument();
+    expect(detail).not.toHaveTextContent("email");
 
     let trigger: HTMLElement | undefined;
     await waitFor(() => {
@@ -254,6 +283,31 @@ describe("NotificationHistoryPanel", () => {
     await user.hover(trigger!);
 
     expect(await screen.findByRole("tooltip")).toHaveTextContent(reason);
+  });
+
+  it("uses a fixed dialog frame so tab changes only scroll the content viewport", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <TooltipProvider delayDuration={0}>
+        <NotificationHistoryPanel
+          data={createSkippedHistoryResponse()}
+          isLoading={false}
+          isFetching={false}
+          error={null}
+          status="all"
+          setStatus={vi.fn()}
+          loadMore={vi.fn()}
+          refetch={vi.fn()}
+        />
+      </TooltipProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "查看调度与历史" }));
+
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toHaveClass("h5-dialog-frame", "flex", "min-h-0", "overflow-hidden");
+    expect(screen.getByTestId("notification-history-scroll")).toHaveClass("min-h-0", "flex-1", "overflow-y-auto");
   });
 
   it("shows skipped empty-array history without a load failure", async () => {
@@ -314,7 +368,8 @@ describe("NotificationHistoryPanel", () => {
     expect(drawer).toHaveClass("h5-drawer-panel", "h5-notification-history-detail-drawer", "overflow-hidden");
     expect(within(drawer).getByText("发送详情")).toBeInTheDocument();
     expect(within(drawer).getByText("累计尝试渠道")).toBeInTheDocument();
-    expect(within(drawer).getByText("email：smtp: 550 mailbox unavailable")).toBeInTheDocument();
+    expect(within(drawer).getByText("邮件通知：smtp: 550 mailbox unavailable")).toBeInTheDocument();
+    expect(drawer).not.toHaveTextContent("email");
   });
 
   it("labels upcoming repeat reminder items", async () => {

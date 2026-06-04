@@ -1,3 +1,4 @@
+// logo-url 测试保护私有资产路径、http(s) 外链和 HTTPS 页面展示 HTTP Logo 的临时升级规则。
 import { describe, expect, it } from "vitest";
 import { resolveDisplayLogoSrc, validateCustomLogoUrlInput } from "./logo-url";
 

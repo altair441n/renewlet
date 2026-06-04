@@ -1,3 +1,4 @@
+// 日历弹窗可访问性测试保护移动/桌面详情弹层的标题、焦点和订阅入口语义。
 import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { assertDateOnly } from "@/lib/time/date-only";
@@ -36,6 +37,21 @@ vi.mock("@/hooks/use-settings", () => ({
   }),
 }));
 
+vi.mock("@/hooks/use-calendar-feed", () => ({
+  useCreateSubscriptionCalendarFeed: () => ({
+    isPending: false,
+    mutateAsync: vi.fn(),
+  }),
+  useDeleteSubscriptionCalendarFeed: () => ({
+    isPending: false,
+    mutateAsync: vi.fn(),
+  }),
+  useSubscriptionCalendarFeedStatus: () => ({
+    data: { enabled: false, feedUrl: undefined },
+    isLoading: false,
+  }),
+}));
+
 function subscription(overrides: SubscriptionOverrides = {}): Subscription {
   const base: SubscriptionBaseFixture = {
     id: "sub-1",
@@ -57,6 +73,7 @@ function subscription(overrides: SubscriptionOverrides = {}): Subscription {
     repeatReminderEnabled: false,
     repeatReminderInterval: "1h",
     repeatReminderWindow: "72h",
+    pinned: false,
   };
 
   if (overrides.billingCycle === "custom") {
@@ -120,7 +137,7 @@ describe("SubscriptionCalendar dialogs", () => {
     );
   });
 
-  it("renders the detail dialog logo on the shared neutral logo tile without cropping", async () => {
+  it("renders the detail dialog logo on the unified theme-aware logo surface without cropping", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-05-14T12:00:00Z"));
 
@@ -137,9 +154,11 @@ describe("SubscriptionCalendar dialogs", () => {
     const logoTile = logo.closest(".subscription-logo-tile");
 
     expect(logo).toHaveClass("subscription-logo-image", "object-contain");
+    expect(logo).not.toHaveClass("media-thumbnail-image", "invert", "brightness-125", "mix-blend-screen");
     expect(logo).not.toHaveClass("object-cover");
     expect(logoTile).not.toBeNull();
-    expect(logoTile).toHaveClass("subscription-logo-tile");
+    expect(logoTile).not.toHaveClass("media-thumbnail-canvas");
+    expect(logoTile).not.toHaveClass("bg-gradient-to-br");
   });
 
   it("uses the same detail dialog logo path for dark transparent logos", async () => {
@@ -161,7 +180,7 @@ describe("SubscriptionCalendar dialogs", () => {
     expect(logo.closest(".subscription-logo-tile")).not.toBeNull();
   });
 
-  it("keeps the detail dialog initials fallback inside the shared logo tile", async () => {
+  it("keeps the detail dialog initials fallback inside the unified logo surface", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-05-14T12:00:00Z"));
 
@@ -174,7 +193,7 @@ describe("SubscriptionCalendar dialogs", () => {
 
     expect(initials).toHaveClass("subscription-logo-fallback");
     expect(logoTile).not.toBeNull();
-    expect(logoTile).toHaveClass("subscription-logo-tile");
+    expect(logoTile).not.toHaveClass("bg-gradient-to-br");
   });
 
   it("renders inherited reminder days in the detail dialog", async () => {
@@ -186,6 +205,29 @@ describe("SubscriptionCalendar dialogs", () => {
     fireEvent.click(screen.getByRole("button", { name: "Aws" }));
 
     expect(screen.getByText("默认提醒：提前 5 天")).toBeInTheDocument();
+  });
+
+  it("opens add-to-calendar actions from the detail dialog", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-14T12:00:00Z"));
+
+    renderCalendar([subscription({ name: "Fastmail", website: "https://fastmail.example" })]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Fastmail" }));
+    fireEvent.click(screen.getByRole("button", { name: "添加到日历" }));
+
+    expect(screen.getByRole("dialog", { name: "添加到日历" })).toBeInTheDocument();
+    expect(screen.getByText("为「Fastmail」创建单独日历订阅，只同步这一条续费。")).toBeInTheDocument();
+    const generateButton = screen.getByRole("button", { name: "生成订阅链接" });
+    expect(generateButton).toHaveClass("bg-primary");
+    expect(screen.queryByRole("link", { name: "打开系统日历" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "下载 ICS 文件" })).toHaveClass("border");
+    expect(screen.getByText("在线日历服务")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "用 Google Calendar 打开" })).toHaveAttribute(
+      "href",
+      expect.stringContaining("calendar.google.com"),
+    );
+    expect(screen.queryByRole("button", { name: "用 Google Calendar 打开" })).not.toBeInTheDocument();
   });
 
   it("describes the day subscription list dialog", async () => {
@@ -205,7 +247,7 @@ describe("SubscriptionCalendar dialogs", () => {
     );
   });
 
-  it("renders day list logos on the shared neutral logo tile without cropping", async () => {
+  it("renders day list logos on the unified theme-aware logo surface without cropping", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-05-14T12:00:00Z"));
 
@@ -223,7 +265,8 @@ describe("SubscriptionCalendar dialogs", () => {
     expect(logo).toHaveClass("subscription-logo-image", "object-contain");
     expect(logo).not.toHaveClass("object-cover");
     expect(logoTile).not.toBeNull();
-    expect(logoTile).toHaveClass("subscription-logo-tile");
+    expect(logoTile).not.toHaveClass("media-thumbnail-canvas");
+    expect(logoTile).not.toHaveClass("bg-gradient-to-br");
   });
 
   it("renders the mobile agenda with only active and trial subscriptions", async () => {

@@ -1,3 +1,4 @@
+// public-routes 测试保护未登录可访问页面白名单，避免刷新法务/setup/reset 页面时被守卫误重定向。
 import { describe, expect, it } from "vitest";
 import { isPublicRoutePath } from "./public-routes";
 

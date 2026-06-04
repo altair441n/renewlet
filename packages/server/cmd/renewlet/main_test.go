@@ -1,5 +1,7 @@
 package main
 
+// 本文件测试静态资源 CSP 和代理协议识别，保护 Docker/反代部署下的前端安全头与外部 URL 判断。
+
 import (
 	"net/http"
 	"strings"

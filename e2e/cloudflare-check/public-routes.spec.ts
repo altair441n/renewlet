@@ -53,6 +53,7 @@ const publicRoutes: Array<{ path: string; assert: (page: Page) => Promise<void> 
 test("public routes and SPA fallback stay reachable without login", async ({ page }, testInfo) => {
   const monitor = createNetworkMonitor(page);
   try {
+    // 公开路由巡检不依赖测试账号，fork/只读生产环境也能覆盖 Worker routing 与 Static Assets fallback。
     // health 走浏览器页面通道，避免 Playwright request fixture 与真实 Chromium 在代理/IPv6 路径上出现不同网络结果。
     const healthResponse = await page.goto("/api/app/health");
     const healthBody = await page.locator("body").textContent();
@@ -89,6 +90,7 @@ test("auth guard returns to requested protected page and logout clears private A
 
   const monitor = createNetworkMonitor(page);
   try {
+    // next 参数是登录守卫的核心契约；线上巡检要覆盖真实 Worker session 写入后的回跳。
     await page.goto("/settings");
     await expect(page).toHaveURL(/\/login\?next=/);
     expect(new URL(page.url()).searchParams.get("next")).toBe("/settings");

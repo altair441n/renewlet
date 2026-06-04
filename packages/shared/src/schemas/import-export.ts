@@ -3,6 +3,13 @@ import { settingsUpdateBodySchema } from "./settings";
 import { customConfigSchema } from "./custom-config";
 import { apiSubscriptionSchema, subscriptionCreateBodySchema } from "./subscriptions";
 
+/**
+ * 单次导入执行的订阅上限。
+ *
+ * 预览允许大文件做冲突分析，但真正写库限制为较小批量，避免 Cloudflare D1/PocketBase 在一次请求里承担无界写入。
+ */
+export const IMPORT_APPLY_SUBSCRIPTION_LIMIT = 200;
+
 export const importConflictModeSchema = z.enum(["replace", "skip"]);
 export type ImportConflictMode = z.infer<typeof importConflictModeSchema>;
 
@@ -30,6 +37,7 @@ export type ImportSubscription = z.infer<typeof importSubscriptionSchema>;
 
 export const importPayloadSchema = z.object({
   source: importSourceSchema,
+  // 导入 payload 是前端、Go route 与 Worker apply 共享契约；上限保护预览解析和冲突查询，不代表一次写库上限。
   subscriptions: z.array(importSubscriptionSchema).max(5000),
   settings: settingsUpdateBodySchema.optional(),
   customConfig: customConfigSchema.optional(),
@@ -37,6 +45,7 @@ export const importPayloadSchema = z.object({
 export type ImportPayload = z.infer<typeof importPayloadSchema>;
 
 export const importSkipIndexesSchema = z.array(z.number().int().nonnegative()).max(5000);
+export const importApplySkipIndexesSchema = z.array(z.number().int().nonnegative()).max(IMPORT_APPLY_SUBSCRIPTION_LIMIT);
 
 export const importPreviewRequestSchema = z.object({
   payload: importPayloadSchema,
@@ -47,9 +56,12 @@ export const importPreviewRequestSchema = z.object({
 export type ImportPreviewRequest = z.infer<typeof importPreviewRequestSchema>;
 
 export const importApplyRequestSchema = z.object({
-  payload: importPayloadSchema,
+  payload: importPayloadSchema.extend({
+    // 执行阶段比预览更严格，因为 replace/create 会触发真实写库、资产引用和用户隔离校验。
+    subscriptions: z.array(importSubscriptionSchema).max(IMPORT_APPLY_SUBSCRIPTION_LIMIT),
+  }),
   conflictMode: importConflictModeSchema,
-  skipIndexes: importSkipIndexesSchema.default([]),
+  skipIndexes: importApplySkipIndexesSchema.default([]),
 }).strict();
 export type ImportApplyRequest = z.infer<typeof importApplyRequestSchema>;
 
@@ -105,6 +117,7 @@ export const renewletExportV1Schema = z.object({
   schemaVersion: z.literal(1),
   exportedAt: z.string(),
   data: z.object({
+    // Export v1 保存 API 订阅形状而不是 UI 草稿形状，保证 Docker 与 Cloudflare 导出的数据可以互导。
     subscriptions: z.array(apiSubscriptionSchema),
     settings: settingsUpdateBodySchema.optional(),
     customConfig: customConfigSchema.optional(),

@@ -9,6 +9,7 @@ import { useI18n } from "@/i18n/I18nProvider";
 import { cn } from "@/lib/utils";
 
 interface TagFilterChipProps {
+  /** 用户自定义标签原文，不能走产品内置 Lingui label 映射。 */
   tag: string;
   selected: boolean;
   onToggle: () => void;
@@ -41,6 +42,7 @@ function toggleTag(tags: string[], tag: string) {
   return tags.includes(tag) ? tags.filter((item) => item !== tag) : [...tags, tag];
 }
 
+/** TagFilterChip 统一两种筛选浮层的 aria-pressed 语义，避免桌面/移动端选择状态读屏口径分叉。 */
 export function TagFilterChip({ tag, selected, onToggle, className }: TagFilterChipProps) {
   return (
     <button
@@ -78,6 +80,7 @@ function SelectedTagPill({ tag, onRemove }: { tag: string; onRemove: () => void 
   );
 }
 
+/** SelectedTagScroller 在窄屏保持横向滚动，避免多标签把筛选栏挤出首屏。 */
 export function SelectedTagScroller({
   selectedTags,
   onRemoveTag,
@@ -120,6 +123,7 @@ export function SubscriptionTagFilterPopover({
   const [searchQuery, setSearchQuery] = useState("");
 
   useEffect(() => {
+    // 桌面 Popover 的选择即时生效；关闭后清空搜索框，避免下次打开误以为标签被删光。
     if (!open) {
       setSearchQuery("");
     }
@@ -229,6 +233,7 @@ export function SubscriptionTagFilterDrawer({
 
   useEffect(() => {
     if (!open) return;
+    // 移动端抽屉使用草稿选择，用户点“应用”前不影响列表，方便在小屏上批量勾选/取消。
     setDraftTags(selectedTags);
     setSearchQuery("");
   }, [open, selectedTags]);

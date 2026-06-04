@@ -1,3 +1,4 @@
+// 裁剪上传 hook 测试保护异步 token 状态机，防止旧 FileReader/上传结果覆盖用户后续选择。
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useCroppedImageUpload } from "./use-cropped-image-upload";

@@ -1,3 +1,4 @@
+// 认证与初始化文案集中在 auth domain；登录、setup 和密码找回入口共享这些 key。
 import { msg } from "@lingui/core/macro";
 
 export const messages = [

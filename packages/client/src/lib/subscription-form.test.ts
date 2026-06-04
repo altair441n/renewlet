@@ -1,3 +1,4 @@
+// subscription-form 测试保护表单输入到 SubscriptionDraft 的转换边界，特别是数字、标签、URL 和 DateOnly 校验。
 import { describe, expect, it } from "vitest";
 import {
   getTagsValidationError,

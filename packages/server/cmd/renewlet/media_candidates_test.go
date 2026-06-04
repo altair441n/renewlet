@@ -1,5 +1,7 @@
 package main
 
+// 本文件测试媒体候选解析的认证、限流、内置 provider 配置和 favicon fallback 预算。
+
 import (
 	"encoding/json"
 	"fmt"

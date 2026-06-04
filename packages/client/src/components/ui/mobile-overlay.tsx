@@ -10,6 +10,7 @@ export type MobileSheetDetent = "auto" | "compact" | "large";
 export type ResolvedMobileSheetDetent = Exclude<MobileSheetDetent, "auto">;
 export type MobileSheetKind = "list" | "calendar" | "panel";
 
+// 移动端遮罩可能来自多个 Radix Portal；模块级计数让 body 锁定和触发器防穿透共用同一事实源。
 let activeMobileBackdropCount = 0;
 type MobileOverlayInteractionPoint = {
   x: number;
@@ -65,10 +66,12 @@ function registerMobileOverlayBackdrop() {
   };
 }
 
+/** useIsMobileOverlay 判断当前交互是否应切换为 H5 sheet/overlay 形态。 */
 export function useIsMobileOverlay() {
   return useMediaQuery(MOBILE_OVERLAY_QUERY);
 }
 
+/** useHasActiveMobileOverlayBackdrop 暴露全局遮罩存在性，供触发器避免同一次 tap 重新打开弹层。 */
 export function useHasActiveMobileOverlayBackdrop() {
   return React.useSyncExternalStore(
     subscribeMobileOverlayState,
@@ -77,6 +80,7 @@ export function useHasActiveMobileOverlayBackdrop() {
   );
 }
 
+/** useControllableOpen 统一 Radix 风格的 controlled/uncontrolled open 状态。 */
 export function useControllableOpen({
   defaultOpen = false,
   onOpenChange,
@@ -103,6 +107,7 @@ export function useControllableOpen({
   return [currentOpen, setOpen] as const;
 }
 
+/** resolveMobileSheetDetent 将调用方意图映射成实际 sheet 高度档位。 */
 export function resolveMobileSheetDetent({
   itemCount,
   kind = "panel",
@@ -123,10 +128,12 @@ export function resolveMobileSheetDetent({
   return "compact";
 }
 
+/** isMobileOverlayBackdropTarget 判断 Radix outside event 是否命中了移动端自定义遮罩。 */
 export function isMobileOverlayBackdropTarget(target: EventTarget | null) {
   return target instanceof Element && target.closest("[data-mobile-overlay-backdrop]") !== null;
 }
 
+/** stopMobileOverlayBackdropEvent 阻止遮罩事件穿透到下层 Dialog 或触发按钮。 */
 export function stopMobileOverlayBackdropEvent(event: Pick<Event, "preventDefault" | "stopPropagation">) {
   event.preventDefault();
   event.stopPropagation();
@@ -185,10 +192,7 @@ function clearExpiredMobileOverlayTriggerSuppression() {
 }
 
 function markMobileOverlayBackdropInteraction(event?: MobileOverlayInteractionEvent) {
-  // Mobile browsers may deliver a delayed compatibility click after the sheet
-  // portal is dismissed. Keep a short, coordinate-scoped guard so that tap
-  // cannot be retargeted to the trigger/control that was visually behind the
-  // backdrop, while still allowing an intentional tap elsewhere immediately.
+  // 移动浏览器会在 portal 卸载后补发兼容 click；短时坐标闸门只拦同一次遮罩点击，不挡用户点别处。
   mobileOverlayTriggerSuppression = {
     expiresAt: Date.now() + MOBILE_OVERLAY_TRIGGER_SUPPRESSION_MS,
     point: getMobileOverlayInteractionPoint(event),
@@ -219,6 +223,7 @@ export function shouldSuppressMobileOverlayTriggerEvent(
   return true;
 }
 
+/** handleMobileOverlayOutsideEvent 让 Radix outside 事件与自定义遮罩关闭语义保持一致。 */
 export function handleMobileOverlayOutsideEvent(
   event: {
     detail?: { originalEvent?: Event };
@@ -230,14 +235,13 @@ export function handleMobileOverlayOutsideEvent(
   const originalTarget = event.detail?.originalEvent?.target ?? event.target;
   if (!isMobileOverlayBackdropTarget(originalTarget)) return false;
 
-  // Radix observes outside pointer events before React receives the backdrop click.
-  // Keep the sheet mounted until click so the browser cannot retarget that same
-  // tap to a trigger or to the parent Dialog behind the backdrop.
+  // Radix 比 React 更早收到 outside pointer；这里阻止立即卸载，避免同一次 tap 穿透到底层 Dialog/触发器。
   event.preventDefault();
   markMobileOverlayBackdropInteraction(event.detail?.originalEvent);
   return true;
 }
 
+/** getMobileSheetClassName 集中维护 sheet 形态类名，避免各弹层复制移动端高度策略。 */
 export function getMobileSheetClassName({
   detent,
   kind,
@@ -255,6 +259,12 @@ export function getMobileSheetClassName({
   );
 }
 
+/**
+ * MobileOverlayBackdrop 是 H5 sheet 的事件隔离层。
+ *
+ * 它不只负责视觉遮罩，还负责记录最近一次遮罩交互坐标，解决移动浏览器在 Portal 卸载后
+ * 把同一次 tap 派发给底层触发器的问题。
+ */
 export function MobileOverlayBackdrop({
   className,
   onDismiss,
@@ -274,10 +284,7 @@ export function MobileOverlayBackdrop({
   React.useEffect(() => {
     if (!isMobileOverlay) return undefined;
 
-    // Nested Radix portals can place a mobile sheet inside DialogContent while
-    // DialogOverlay stays in a sibling stacking layer. Registering the active
-    // backdrop gives shared tests and guards one source of truth for the top
-    // mobile layer, while the backdrop itself consumes the tap before dismissal.
+    // 嵌套 Radix portal 会拆开 DialogOverlay 与 sheet 层级；全局计数给测试和触发器防穿透同一事实源。
     return registerMobileOverlayBackdrop();
   }, [isMobileOverlay]);
 

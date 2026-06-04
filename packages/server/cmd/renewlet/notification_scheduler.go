@@ -14,7 +14,7 @@ package main
 // 注意： 这里按用户时区检查 today/yesterday，是为了覆盖 UTC tick 与用户本地跨日的边界窗口。
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"sort"
 	"strconv"
 	"strings"
@@ -23,6 +23,8 @@ import (
 
 	"github.com/pocketbase/pocketbase/core"
 )
+
+const notificationCronPageSize = 100
 
 // registerNotificationCron 注册订阅提醒定时任务。
 // TryLock 防止上一次发送尚未结束时重复 tick，避免同一用户在同一分钟收到重复通知。
@@ -33,18 +35,23 @@ func registerNotificationCron(app core.App) error {
 	expr := envString("NOTIFICATION_SCHEDULER_CRON", "* * * * *")
 	return app.Cron().Add("renewlet_notifications", expr, func() {
 		if !notificationCronMu.TryLock() {
-			log.Println("[notification-scheduler] previous run still active, skipping tick")
+			slog.Info("notification scheduler skipped overlapping tick")
 			return
 		}
 		defer notificationCronMu.Unlock()
 
 		result, err := runNotificationCron(app, notificationCronOptions{})
 		if err != nil {
-			log.Printf("[notification-scheduler] run failed: %v", err)
+			slog.Error("notification scheduler failed", "error", err)
 			return
 		}
 		if result.Failed > 0 {
-			log.Printf("[notification-scheduler] processed=%d sent=%d skipped=%d failed=%d", result.Processed, result.Sent, result.Skipped, result.Failed)
+			slog.Warn("notification scheduler completed with failures",
+				"processed", result.Processed,
+				"sent", result.Sent,
+				"skipped", result.Skipped,
+				"failed", result.Failed,
+			)
 		}
 	})
 }
@@ -149,6 +156,7 @@ func getNotificationScheduleDecision(now time.Time, settings appSettings, subscr
 	if regular.Due || force {
 		return regular
 	}
+	// 日常提醒优先；只有本轮没命中时才检查重要订阅的重复提醒，避免同一分钟重复生成两个 job。
 	if repeat := getRepeatScheduleDecision(now, settings, subscriptions, windowMinutes); repeat.Due {
 		return repeat
 	}
@@ -272,164 +280,158 @@ func buildNotificationOverview(now time.Time, settings appSettings, subscription
 //	失败状态（failed）+ 可重试 -> 只重试失败渠道
 func runNotificationCron(app core.App, options notificationCronOptions) (notificationCronResult, error) {
 	options = resolveCronOptions(options)
-	settingsRows, err := app.FindAllRecords("settings")
-	if err != nil {
-		return notificationCronResult{}, err
-	}
-	subscriptionRows, err := app.FindAllRecords("subscriptions")
-	if err != nil {
-		return notificationCronResult{}, err
-	}
-	subsByUser := map[string][]notificationSubscription{}
-	for _, row := range subscriptionRows {
-		userID := row.GetString("user")
-		if userID == "" {
-			continue
-		}
-		// 先按 user 分组，避免每个 settings 用户都全表扫描 subscriptions。
-		subsByUser[userID] = append(subsByUser[userID], notificationSubscriptionFromRecord(row))
-	}
-
 	results := []notificationCronUserResult{}
-	for _, row := range settingsRows {
-		userID := row.GetString("user")
-		if userID == "" {
-			continue
-		}
-		settings := settingsFromRecord(row)
-		subscriptions := subsByUser[userID]
-		schedule := getNotificationScheduleDecision(options.Now, settings, subscriptions, options.WindowMinutes, options.Force)
-		if !schedule.Due {
-			results = append(results, notificationCronUserResult{
-				UserID: userID,
-				Action: "skipped",
-				Reason: fmt.Sprintf("%s(localDate=%s, localTime=%s, timeZone=%s, window=%dm)", schedule.Reason, schedule.ScheduledLocalDate, schedule.ScheduledLocalTime, schedule.TimeZone, options.WindowMinutes),
-			})
-			continue
-		}
-
-		due := buildDueNotificationForSchedule(schedule.localScheduleOccurrence, options.Now, settings, subscriptions, true)
-		existingJob, _ := getNotificationJob(app, userID, schedule.ScheduledLocalDate, schedule.ScheduledLocalTime, schedule.TimeZone)
-		if existingJob != nil && (existingJob.GetString("status") == notificationStatusSent || existingJob.GetString("status") == notificationStatusSkipped) {
-			reason := "already_sent"
-			if existingJob.GetString("status") == notificationStatusSkipped {
-				reason = "already_skipped"
-			}
-			results = append(results, notificationCronUserResult{UserID: userID, Action: "skipped", Reason: reason})
-			continue
-		}
-		if existingJob != nil && existingJob.GetString("status") == notificationStatusSending {
-			age := options.Now.Sub(existingJob.GetDateTime("updated").Time()).Minutes()
-			// sending 可能来自上次进程崩溃或外部 API 长时间卡住；未过 stale 窗口时跳过，过期后允许接管重试。
-			if age < float64(options.StaleSendingMinutes) && !options.Force {
-				results = append(results, notificationCronUserResult{UserID: userID, Action: "skipped", Reason: "already_sending"})
-				continue
-			}
-		}
-		attempts := 0
-		if existingJob != nil {
-			attempts = existingJob.GetInt("attempts")
-		}
-		if !options.Force && existingJob != nil && existingJob.GetString("status") == notificationStatusFailed && options.MaxRetries == 0 {
-			results = append(results, notificationCronUserResult{UserID: userID, Action: "skipped", Reason: "retries_disabled"})
-			continue
-		}
-		if !options.Force && existingJob != nil && existingJob.GetString("status") == notificationStatusFailed && attempts >= options.MaxRetries {
-			results = append(results, notificationCronUserResult{UserID: userID, Action: "skipped", Reason: "max_retries_reached"})
-			continue
-		}
-
-		finalReason := ""
-		if len(settings.EnabledChannels) == 0 {
-			finalReason = "no_enabled_channels"
-		} else if !due.HasPayload && !options.Force {
-			finalReason = "no_due_items"
-		}
-		previousChannels := jobChannels{}
-		if existingJob != nil && existingJob.GetString("status") == notificationStatusFailed {
-			// 失败任务只重试失败渠道，已成功渠道不再重复推送。
-			previousChannels = readJobChannels(existingJob)
-		}
-		channelsToSend := channelsToSend(existingJob, previousChannels, settings.EnabledChannels)
-		// 失败渠道被禁用后没有可重试对象，此时把任务收敛为 sent，避免历史永远停在 failed。
-		noRetryableChannels := existingJob != nil && existingJob.GetString("status") == notificationStatusFailed && len(channelsToSend) == 0
-
-		if !options.DryRun && !noRetryableChannels {
-			var created bool
-			var err error
-			if existingJob == nil {
-				// createNotificationJob 依赖唯一索引处理并发；若另一个进程抢先创建，则本用户本轮跳过。
-				existingJob, created, err = createNotificationJob(app, userID, schedule, notificationStatusSending, 1)
-				if err != nil {
-					return notificationCronResult{}, err
-				}
-				if !created {
-					results = append(results, notificationCronUserResult{UserID: userID, Action: "skipped", Reason: "job_already_exists"})
-					continue
-				}
-			} else if err := markNotificationJobSending(app, existingJob, attempts+1); err != nil {
-				return notificationCronResult{}, err
-			}
-		}
-
-		if options.DryRun {
-			action := "sent"
-			reason := "dry_run"
-			if finalReason != "" {
-				action = "skipped"
-				reason = finalReason
-			}
-			// dry-run 只返回决策，不创建/更新 job，便于外部 Cron 调试时不污染幂等历史。
-			results = append(results, notificationCronUserResult{UserID: userID, Action: action, Reason: reason})
-			continue
-		}
-
-		if finalReason != "" {
-			// 即使没有可发送内容也写入 skipped job，前端历史才能解释“本次 cron 已检查但无提醒”。
-			result := createJobResult(finalReason, schedule.localScheduleOccurrence, settings, due, options, jobChannels{})
-			if err := finalizeNotificationJob(app, existingJob, userID, schedule, notificationStatusSkipped, "", result); err != nil {
-				return notificationCronResult{}, err
-			}
-			results = append(results, notificationCronUserResult{UserID: userID, Action: "skipped", Reason: finalReason})
-			continue
-		}
-
-		if noRetryableChannels {
-			channels := mergeChannelResults(previousChannels, sendSummary{}, settings.EnabledChannels)
-			result := createJobResult("", schedule.localScheduleOccurrence, settings, due, options, channels)
-			if err := finalizeNotificationJob(app, existingJob, userID, schedule, notificationStatusSent, "", result); err != nil {
-				return notificationCronResult{}, err
-			}
-			results = append(results, notificationCronUserResult{UserID: userID, Action: "sent"})
-			continue
-		}
-
-		summary := sendToChannels(app, channelsToSend, settings, due)
-		channels := mergeChannelResults(previousChannels, summary, settings.EnabledChannels)
-		status := notificationStatusSent
-		lastError := ""
-		reason := ""
-		if len(channels.Failed) > 0 {
-			status = notificationStatusFailed
-			reason = "some_channels_failed"
-			parts := make([]string, 0, len(channels.Failed))
-			for _, failure := range channels.Failed {
-				parts = append(parts, failure.Channel+": "+failure.Error)
-			}
-			lastError = strings.Join(parts, " | ")
-		}
-		result := createJobResult(reason, schedule.localScheduleOccurrence, settings, due, options, channels)
-		if err := finalizeNotificationJob(app, existingJob, userID, schedule, status, lastError, result); err != nil {
+	for offset := 0; ; offset += notificationCronPageSize {
+		settingsRows, err := app.FindRecordsByFilter("settings", "user != ''", "created", notificationCronPageSize, offset)
+		if err != nil {
 			return notificationCronResult{}, err
 		}
-		action := "sent"
-		if status == notificationStatusFailed {
-			action = "failed"
+		for _, row := range settingsRows {
+			result, err := processNotificationCronUser(app, options, row)
+			if err != nil {
+				return notificationCronResult{}, err
+			}
+			results = append(results, result)
 		}
-		results = append(results, notificationCronUserResult{UserID: userID, Action: action, Reason: reason})
+		if len(settingsRows) < notificationCronPageSize {
+			break
+		}
 	}
 
 	return summarizeCronResult(options, results), nil
+}
+
+func processNotificationCronUser(app core.App, options notificationCronOptions, row *core.Record) (notificationCronUserResult, error) {
+	userID := row.GetString("user")
+	if userID == "" {
+		return notificationCronUserResult{Action: "skipped", Reason: "missing_user"}, nil
+	}
+	settings := settingsFromRecord(row)
+	subscriptions, err := listNotificationSubscriptions(app, userID)
+	if err != nil {
+		return notificationCronUserResult{}, err
+	}
+	schedule := getNotificationScheduleDecision(options.Now, settings, subscriptions, options.WindowMinutes, options.Force)
+	if !schedule.Due {
+		return notificationCronUserResult{
+			UserID: userID,
+			Action: "skipped",
+			Reason: fmt.Sprintf("%s(localDate=%s, localTime=%s, timeZone=%s, window=%dm)", schedule.Reason, schedule.ScheduledLocalDate, schedule.ScheduledLocalTime, schedule.TimeZone, options.WindowMinutes),
+		}, nil
+	}
+
+	due := buildDueNotificationForSchedule(schedule.localScheduleOccurrence, options.Now, settings, subscriptions, true)
+	existingJob, _ := getNotificationJob(app, userID, schedule.ScheduledLocalDate, schedule.ScheduledLocalTime, schedule.TimeZone)
+	if existingJob != nil && (existingJob.GetString("status") == notificationStatusSent || existingJob.GetString("status") == notificationStatusSkipped) {
+		reason := "already_sent"
+		if existingJob.GetString("status") == notificationStatusSkipped {
+			reason = "already_skipped"
+		}
+		return notificationCronUserResult{UserID: userID, Action: "skipped", Reason: reason}, nil
+	}
+	if existingJob != nil && existingJob.GetString("status") == notificationStatusSending {
+		age := options.Now.Sub(existingJob.GetDateTime("updated").Time()).Minutes()
+		// sending 可能来自上次进程崩溃或外部 API 长时间卡住；未过 stale 窗口时跳过，过期后允许接管重试。
+		if age < float64(options.StaleSendingMinutes) && !options.Force {
+			return notificationCronUserResult{UserID: userID, Action: "skipped", Reason: "already_sending"}, nil
+		}
+	}
+	attempts := 0
+	if existingJob != nil {
+		attempts = existingJob.GetInt("attempts")
+	}
+	if !options.Force && existingJob != nil && existingJob.GetString("status") == notificationStatusFailed && options.MaxRetries == 0 {
+		return notificationCronUserResult{UserID: userID, Action: "skipped", Reason: "retries_disabled"}, nil
+	}
+	if !options.Force && existingJob != nil && existingJob.GetString("status") == notificationStatusFailed && attempts >= options.MaxRetries {
+		// 失败任务保留给历史页解释失败原因；超过重试预算后不再自动扰动外部通知渠道。
+		return notificationCronUserResult{UserID: userID, Action: "skipped", Reason: "max_retries_reached"}, nil
+	}
+
+	finalReason := ""
+	if len(settings.EnabledChannels) == 0 {
+		finalReason = "no_enabled_channels"
+	} else if !due.HasPayload && !options.Force {
+		finalReason = "no_due_items"
+	}
+	previousChannels := jobChannels{}
+	if existingJob != nil && existingJob.GetString("status") == notificationStatusFailed {
+		// 失败任务只重试失败渠道，已成功渠道不再重复推送。
+		previousChannels = readJobChannels(existingJob)
+	}
+	channelsToSend := channelsToSend(existingJob, previousChannels, settings.EnabledChannels)
+	// 失败渠道被禁用后没有可重试对象，此时把任务收敛为 sent，避免历史永远停在 failed。
+	noRetryableChannels := existingJob != nil && existingJob.GetString("status") == notificationStatusFailed && len(channelsToSend) == 0
+
+	if !options.DryRun && !noRetryableChannels {
+		var created bool
+		var err error
+		if existingJob == nil {
+			// createNotificationJob 依赖唯一索引处理并发；若另一个进程抢先创建，则本用户本轮跳过。
+			existingJob, created, err = createNotificationJob(app, userID, schedule, notificationStatusSending, 1)
+			if err != nil {
+				return notificationCronUserResult{}, err
+			}
+			if !created {
+				return notificationCronUserResult{UserID: userID, Action: "skipped", Reason: "job_already_exists"}, nil
+			}
+		} else if err := markNotificationJobSending(app, existingJob, attempts+1); err != nil {
+			return notificationCronUserResult{}, err
+		}
+	}
+
+	if options.DryRun {
+		action := "sent"
+		reason := "dry_run"
+		if finalReason != "" {
+			action = "skipped"
+			reason = finalReason
+		}
+		// dry-run 只返回决策，不创建/更新 job，便于外部 Cron 调试时不污染幂等历史。
+		return notificationCronUserResult{UserID: userID, Action: action, Reason: reason}, nil
+	}
+
+	if finalReason != "" {
+		// 即使没有可发送内容也写入 skipped job，前端历史才能解释“本次 cron 已检查但无提醒”。
+		result := createJobResult(finalReason, schedule.localScheduleOccurrence, settings, due, options, jobChannels{})
+		if err := finalizeNotificationJob(app, existingJob, userID, schedule, notificationStatusSkipped, "", result); err != nil {
+			return notificationCronUserResult{}, err
+		}
+		return notificationCronUserResult{UserID: userID, Action: "skipped", Reason: finalReason}, nil
+	}
+
+	if noRetryableChannels {
+		channels := mergeChannelResults(previousChannels, sendSummary{}, settings.EnabledChannels)
+		result := createJobResult("", schedule.localScheduleOccurrence, settings, due, options, channels)
+		if err := finalizeNotificationJob(app, existingJob, userID, schedule, notificationStatusSent, "", result); err != nil {
+			return notificationCronUserResult{}, err
+		}
+		return notificationCronUserResult{UserID: userID, Action: "sent"}, nil
+	}
+
+	summary := sendToChannels(app, channelsToSend, settings, due)
+	channels := mergeChannelResults(previousChannels, summary, settings.EnabledChannels)
+	status := notificationStatusSent
+	lastError := ""
+	reason := ""
+	if len(channels.Failed) > 0 {
+		status = notificationStatusFailed
+		reason = "some_channels_failed"
+		parts := make([]string, 0, len(channels.Failed))
+		for _, failure := range channels.Failed {
+			parts = append(parts, failure.Channel+": "+failure.Error)
+		}
+		lastError = strings.Join(parts, " | ")
+	}
+	result := createJobResult(reason, schedule.localScheduleOccurrence, settings, due, options, channels)
+	if err := finalizeNotificationJob(app, existingJob, userID, schedule, status, lastError, result); err != nil {
+		return notificationCronUserResult{}, err
+	}
+	action := "sent"
+	if status == notificationStatusFailed {
+		action = "failed"
+	}
+	return notificationCronUserResult{UserID: userID, Action: action, Reason: reason}, nil
 }
 
 // resolveCronOptions 填充 cron 默认参数。

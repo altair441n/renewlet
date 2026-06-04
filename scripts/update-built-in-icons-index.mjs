@@ -3,6 +3,10 @@
 /**
  * 图标索引生成脚本（内置多 provider）。
  *
+ * 触发时机：维护者手动运行 `pnpm update:built-in-icons-index`，上游 registry 更新后再提交生成结果。
+ * 前置依赖：Node.js fetch、可访问 theSVG/selfh.st/dashboard-icons 的网络，以及 shared media resolver 配置。
+ * 副作用：重写前端运行时索引和 Go embedded static 索引。
+ *
  * 架构位置：把上游 registry/metadata 收敛成前端搜索和后端 embedded static 共用的窄 JSON，
  * 避免客户端运行时拉取完整上游数据。
  *
@@ -77,6 +81,7 @@ async function fetchJson(url, label) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
+    // 上游 registry 是生成期依赖；超时失败必须阻断索引更新，不能写入半截候选库。
     const response = await fetch(url, { headers: { accept: "application/json" }, signal: controller.signal });
     if (!response.ok) {
       throw new Error(`${label} HTTP ${response.status}`);
@@ -96,6 +101,7 @@ async function fetchJsonAny(urls, label) {
       errors.push(error instanceof Error ? error.message : String(error));
     }
   }
+  // 多 CDN fallback 都失败时保留旧索引更安全；脚本失败会让维护者重新确认上游变更。
   throw new Error(`${label} failed: ${errors.join("; ")}`);
 }
 
@@ -249,11 +255,13 @@ const icons = [
 ];
 
 if (icons.length === 0) {
+  // 空索引会让前端/后端候选解析退化为只有 favicon，因此必须作为生成失败处理。
   throw new Error("built-in icon index generation produced no icons");
 }
 
 for (const outputPath of outputPaths) {
   await mkdir(path.dirname(outputPath), { recursive: true });
+  // 前端运行时和 Go embedded static 必须写入同一 JSON 内容，保证 Docker 与 Cloudflare 候选行为一致。
   await writeFile(outputPath, `${JSON.stringify(icons)}\n`, "utf8");
 }
 

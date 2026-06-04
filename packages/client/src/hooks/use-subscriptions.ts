@@ -12,17 +12,61 @@
  * 修改该转换会影响统计折算、表单回填和通知提醒。
  */
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMemo } from "react";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { subscriptionService } from "@/services/subscription-service";
 import type { Subscription, SubscriptionDraft } from "@/types/subscription";
 
+const SUBSCRIPTIONS_QUERY_KEY = ["subscriptions"] as const;
+const SUBSCRIPTIONS_LIST_QUERY_KEY = [...SUBSCRIPTIONS_QUERY_KEY, "list"] as const;
+const SUBSCRIPTIONS_INFINITE_QUERY_KEY = [...SUBSCRIPTIONS_QUERY_KEY, "infinite"] as const;
+const SUBSCRIPTIONS_PAGE_QUERY_KEY = [...SUBSCRIPTIONS_QUERY_KEY, "page"] as const;
+
+/** useSubscriptions 保留全量列表入口，避免统计/导出逻辑自己拼分页结果造成口径漂移。 */
 export function useSubscriptions() {
   return useQuery({
-    queryKey: ["subscriptions"],
+    queryKey: SUBSCRIPTIONS_LIST_QUERY_KEY,
     queryFn: () => subscriptionService.list(),
   });
 }
 
+/**
+ * useInfiniteSubscriptions 读取游标分页订阅并在 hook 边界摊平成列表。
+ *
+ * 页面只消费 `subscriptions`，避免把 Worker/Go 的分页响应形状泄漏到筛选、虚拟列表和 CRUD 控制器。
+ */
+export function useInfiniteSubscriptions() {
+  const query = useInfiniteQuery({
+    queryKey: SUBSCRIPTIONS_INFINITE_QUERY_KEY,
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam }) => subscriptionService.listPage(pageParam),
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+  });
+  const subscriptions = useMemo(
+    () => query.data?.pages.flatMap((page) => page.subscriptions) ?? [],
+    [query.data?.pages],
+  );
+  return {
+    ...query,
+    subscriptions,
+    total: query.data?.pages[0]?.total,
+  };
+}
+
+/** useSubscriptionsPage 让局部视图显式绑定 cursor/limit，避免复用无限滚动缓存时读到错误页。 */
+export function useSubscriptionsPage(cursor?: string | null, limit?: number) {
+  return useQuery({
+    queryKey: [...SUBSCRIPTIONS_PAGE_QUERY_KEY, cursor ?? null, limit ?? subscriptionService.pageSize] as const,
+    queryFn: () => subscriptionService.listPage(cursor, limit),
+  });
+}
+
+/** invalidateSubscriptionsQueries 让列表、分页和无限滚动缓存共享同一个失效前缀。 */
+export function invalidateSubscriptionsQueries(queryClient: QueryClient) {
+  return queryClient.invalidateQueries({ queryKey: SUBSCRIPTIONS_QUERY_KEY });
+}
+
+/** useCreateSubscription 写入后只失效订阅缓存，由 service 层负责 Docker/Cloudflare 运行面分流。 */
 export function useCreateSubscription() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -31,11 +75,12 @@ export function useCreateSubscription() {
     },
     onSuccess: () => {
       // 订阅数据会驱动统计、日历和通知预览；写操作后统一让订阅列表成为失效源。
-      queryClient.invalidateQueries({ queryKey: ["subscriptions"] });
+      invalidateSubscriptionsQueries(queryClient);
     },
   });
 }
 
+/** useUpdateSubscription 保存完整 domain 对象，避免编辑弹窗关心 API patch 形状。 */
 export function useUpdateSubscription() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -43,11 +88,12 @@ export function useUpdateSubscription() {
       return await subscriptionService.update(sub);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["subscriptions"] });
+      invalidateSubscriptionsQueries(queryClient);
     },
   });
 }
 
+/** useDeleteSubscription 删除后统一失效订阅前缀，保证统计和日历入口不读旧列表。 */
 export function useDeleteSubscription() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -55,7 +101,7 @@ export function useDeleteSubscription() {
       await subscriptionService.delete(id);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["subscriptions"] });
+      invalidateSubscriptionsQueries(queryClient);
     },
   });
 }

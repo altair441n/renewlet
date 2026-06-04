@@ -18,7 +18,9 @@ import { getAuthHeader } from "@/lib/pocketbase";
 import { isExternalHttpImageSrc, resolveDisplayLogoSrc } from "@/lib/logo-url";
 
 type AuthorizedImageProps = Omit<ImgHTMLAttributes<HTMLImageElement>, "src" | "onError"> & {
+  /** 支持私有资产代理路径和外部 http(s) 图片；显示前会按当前页面协议做安全降级/升级。 */
   src: string;
+  /** 加载失败只通知调用方切换 fallback，不暴露 fetch 细节。 */
   onError?: (() => void) | undefined;
 };
 
@@ -79,12 +81,14 @@ function useAuthorizedImageSrc(src: string | undefined): { src: string | undefin
   return { src: resolvedSrc, failed };
 }
 
+/** AuthorizedImage 统一处理私有资产鉴权、object URL 生命周期和外链 referrer 策略。 */
 export function AuthorizedImage({ src, onError, ...props }: AuthorizedImageProps) {
   const displaySrc = useMemo(() => resolveDisplayLogoSrc(src), [src]);
   const image = useAuthorizedImageSrc(displaySrc);
   const referrerPolicy = props.referrerPolicy ?? (displaySrc && isExternalHttpImageSrc(displaySrc) ? "no-referrer" : undefined);
 
   useEffect(() => {
+    // resolveDisplayLogoSrc 可能因 mixed content/IP host 返回 undefined；调用方应走占位图而不是渲染坏 URL。
     if (!displaySrc || image.failed) onError?.();
   }, [displaySrc, image.failed, onError]);
 

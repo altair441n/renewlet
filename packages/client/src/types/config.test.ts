@@ -1,3 +1,4 @@
+// config 类型测试保护默认配置迁移和内置支付方式/货币策略，避免旧 localStorage 形状污染 UI。
 import { describe, expect, it } from "vitest";
 import { CATEGORIES, CURRENCY_OPTIONS, SUBSCRIPTION_STATUSES } from "./subscription";
 import {

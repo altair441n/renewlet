@@ -1,9 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
+import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { formatter } from "@lingui/format-po";
 
+// i18n catalog 守卫：CI 和 `pnpm --filter @renewlet/client i18n:check` 调用。
+// 只检查 Lingui catalog、catalog key 和服务端文案生成物是否同步，不主动改仓库文件。
 const rootDir = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const clientDir = path.join(rootDir, "packages/client");
 const clientRequire = createRequire(path.join(clientDir, "package.json"));
@@ -14,9 +17,14 @@ const catalogDir = path.join(clientDir, "src/i18n/catalogs");
 const descriptorDir = path.join(clientDir, "src/i18n/descriptors");
 const catalogKeysPath = path.join(clientDir, "src/i18n/catalog-keys.ts");
 const distAssetsDir = path.join(clientDir, "dist/assets");
+const serverI18nSourceDir = path.join(rootDir, "packages/shared/data/server-i18n");
+const goServerDir = path.join(rootDir, "packages/server/cmd/renewlet");
+const cloudflareSrcDir = path.join(rootDir, "packages/cloudflare/src");
+const serverI18nGenerator = path.join(rootDir, "scripts/generate-server-i18n.mjs");
 const sourceRoot = path.join(clientDir, "src");
 const locales = ["zh-CN", "en-US"];
 const sourceLocale = locales[0];
+const serverDefaultLocale = "zh-CN";
 const domains = [
   "common",
   "legal",
@@ -64,6 +72,14 @@ function placeholders(message) {
   return [...names].sort();
 }
 
+function serverPlaceholders(message) {
+  const names = new Set();
+  for (const match of message.matchAll(/\{([A-Za-z_][A-Za-z0-9_]*)\}/g)) {
+    names.add(match[1]);
+  }
+  return [...names].sort();
+}
+
 function readGeneratedMessageKeys() {
   const source = fs.readFileSync(catalogKeysPath, "utf8");
   return [...source.matchAll(/^\s*"([^"]+)",$/gm)].map((match) => match[1]).sort();
@@ -82,11 +98,12 @@ function walkFiles(dir, files = []) {
   return files;
 }
 
-function walkAllFiles(dir, files = []) {
+function walkAllFiles(dir, files = [], options = {}) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const fullPath = path.join(dir, entry.name);
     if (entry.isDirectory()) {
-      walkAllFiles(fullPath, files);
+      if (options.skipDirs?.has(entry.name)) continue;
+      walkAllFiles(fullPath, files, options);
     } else {
       files.push(fullPath);
     }
@@ -148,6 +165,62 @@ async function extractDescriptorCatalogs() {
   return extracted;
 }
 
+function readServerI18nCatalog(locale) {
+  return JSON.parse(fs.readFileSync(path.join(serverI18nSourceDir, `active.${locale}.json`), "utf8"));
+}
+
+function discoverServerLocales() {
+  const serverLocales = fs.readdirSync(serverI18nSourceDir)
+    .map((name) => /^active\.(.+)\.json$/.exec(name)?.[1])
+    .filter(Boolean)
+    .sort();
+  if (!serverLocales.includes(serverDefaultLocale)) {
+    throw new Error(`missing default server i18n catalog active.${serverDefaultLocale}.json`);
+  }
+  return [serverDefaultLocale, ...serverLocales.filter((locale) => locale !== serverDefaultLocale)];
+}
+
+function checkServerI18nCatalogs(failures) {
+  const serverLocales = discoverServerLocales();
+  const catalogs = Object.fromEntries(serverLocales.map((locale) => [locale, readServerI18nCatalog(locale)]));
+  const baseServer = catalogs[serverDefaultLocale];
+  const baseKeys = Object.keys(baseServer).sort();
+  const baseKeySet = new Set(baseKeys);
+  for (const locale of serverLocales) {
+    const current = catalogs[locale];
+    const currentKeys = Object.keys(current).sort();
+    const currentKeySet = new Set(currentKeys);
+    for (const key of baseKeys) {
+      if (!currentKeySet.has(key)) failures.push(`server i18n ${locale} is missing key ${key}`);
+    }
+    for (const key of currentKeys) {
+      if (!baseKeySet.has(key)) failures.push(`server i18n ${locale} has extra key ${key}`);
+      if (typeof current[key] !== "string" || current[key].trim() === "") {
+        failures.push(`server i18n ${locale} has empty message for ${key}`);
+      }
+      if (/%(\d+\$)?[+#0\- ]*(\*|\d+)?(?:\.(\*|\d+))?[bcdeEfgGopqstTvxXU]/.test(current[key] ?? "")) {
+        failures.push(`server i18n ${locale} uses legacy printf placeholder in ${key}; use named placeholders like {label}.`);
+      }
+    }
+  }
+  for (const key of baseKeys) {
+    const expected = serverPlaceholders(baseServer[key]).join(",");
+    for (const locale of serverLocales.filter((locale) => locale !== serverDefaultLocale)) {
+      const actual = serverPlaceholders(catalogs[locale][key] ?? "").join(",");
+      if (expected !== actual) {
+        failures.push(`server i18n ${locale} placeholder mismatch for ${key}: expected [${expected}], got [${actual}]`);
+      }
+    }
+  }
+}
+
+function checkServerI18nGeneratedOutputs(failures) {
+  const output = spawnSync(process.execPath, [serverI18nGenerator, "--check"], { cwd: rootDir, encoding: "utf8" });
+  if (output.status !== 0) {
+    failures.push((output.stderr || output.stdout || "server i18n generated outputs are out of sync").trim());
+  }
+}
+
 const failures = [];
 const catalogs = Object.fromEntries(locales.map((locale) => [locale, readCatalog(locale)]));
 const base = catalogs[sourceLocale];
@@ -197,6 +270,9 @@ if (generatedKeys.join("\n") !== baseKeys.join("\n")) {
   failures.push("src/i18n/catalog-keys.ts is out of sync with the source locale catalog. Run `pnpm --filter @renewlet/client i18n:extract`.");
 }
 
+checkServerI18nCatalogs(failures);
+checkServerI18nGeneratedOutputs(failures);
+
 const sourceFiles = walkFiles(sourceRoot);
 const staticLabelPattern = /\blabels\(\s*(["'])([^"']*)\1\s*,\s*(["'])([^"']*)\3\s*\)/g;
 const localeBranchPattern = /\b(?:locale|localeState\.locale|getApiLocale\(\))\s*={2,3}\s*["'](?:zh-CN|en-US)["']\s*\?\s*(`(?:[^`\\]|\\[\s\S])*`|"[^"\n]*"|'[^'\n]*')\s*:\s*(`(?:[^`\\]|\\[\s\S])*`|"[^"\n]*"|'[^'\n]*')/g;
@@ -219,6 +295,30 @@ for (const filePath of sourceFiles) {
     const second = match[2] ?? "";
     if (!hasDisplayText(first) && !hasDisplayText(second)) continue;
     failures.push(`${relativePath(filePath)}:${lineNumberForOffset(source, match.index ?? 0)} uses a locale branch with inline display text. Move product-owned text to the Lingui catalog.`);
+  }
+}
+
+const serverSourceFiles = [
+  ...walkAllFiles(goServerDir, [], { skipDirs: new Set(["i18n", "templates"]) }).filter((filePath) => /\.(go)$/.test(filePath)),
+  ...walkAllFiles(cloudflareSrcDir).filter((filePath) => /\.ts$/.test(filePath) && !filePath.endsWith("server-i18n-catalog.ts")),
+];
+const legacyDualTextPattern = /\btr\s*\(/;
+const serverLocaleBranchPattern = /\b(?:locale|settings\.locale|requestLocale\([^)]*\))\s*!?={2,3}\s*["'](?:zh-CN|en-US)["']\s*\?\s*(`(?:[^`\\]|\\[\s\S])*`|"[^"\n]*"|'[^'\n]*')\s*:\s*(`(?:[^`\\]|\\[\s\S])*`|"[^"\n]*"|'[^'\n]*')/g;
+const acceptLanguageIncludesPattern = /accept-language[\s\S]{0,160}\.includes\(\s*["'](?:en|zh)/i;
+for (const filePath of serverSourceFiles) {
+  const source = fs.readFileSync(filePath, "utf8");
+  if (legacyDualTextPattern.test(source)) {
+    failures.push(`${relativePath(filePath)} uses tr(). Server-visible text must come from packages/shared/data/server-i18n.`);
+  }
+  if (acceptLanguageIncludesPattern.test(source)) {
+    failures.push(`${relativePath(filePath)} matches Accept-Language with includes(). Use the server locale matcher instead.`);
+  }
+  if (/\.(test|spec)\.(go|ts)$/.test(filePath)) continue;
+  for (const match of source.matchAll(serverLocaleBranchPattern)) {
+    const first = match[1] ?? "";
+    const second = match[2] ?? "";
+    if (!hasDisplayText(first) && !hasDisplayText(second)) continue;
+    failures.push(`${relativePath(filePath)}:${lineNumberForOffset(source, match.index ?? 0)} uses a server locale branch with inline display text. Move server text to the server i18n catalog.`);
   }
 }
 

@@ -29,25 +29,25 @@ func sendEmail(settings appSettings, message notificationMessage) error {
 		recipients = recipients[:1]
 	}
 	if len(recipients) == 0 {
-		return errors.New(tr(locale, "收件人邮箱不能为空", "Recipient email is required"))
+		return errors.New(serverText(locale, "smtp.recipientRequired"))
 	}
 	to := make([]mail.Address, 0, len(recipients))
 	for _, recipient := range recipients {
 		addr, err := mail.ParseAddress(recipient)
 		if err != nil {
-			return fmt.Errorf(tr(locale, "收件人邮箱格式无效：%s", "Invalid recipient email: %s"), recipient)
+			return errors.New(serverFormat(locale, "smtp.recipientInvalid", map[string]interface{}{"recipient": recipient}))
 		}
 		to = append(to, *addr)
 	}
 	from, err := mail.ParseAddress(config.From)
 	if err != nil {
-		return errors.New(tr(locale, "SMTP 发件人格式无效", "Invalid SMTP from address"))
+		return errors.New(serverText(locale, "smtp.fromInvalid"))
 	}
 	headers := map[string]string{}
 	if config.ReplyTo != "" {
 		replyTo, err := mail.ParseAddress(config.ReplyTo)
 		if err != nil {
-			return errors.New(tr(locale, "SMTP 回复地址格式无效", "Invalid SMTP reply-to address"))
+			return errors.New(serverText(locale, "smtp.replyToInvalid"))
 		}
 		headers["Reply-To"] = replyTo.String()
 	}
@@ -125,19 +125,19 @@ func hasSettingsSmtpConfig(settings appSettings) bool {
 }
 
 func buildSMTPConfig(host, portRaw string, secure bool, username, password, from, replyTo string) (smtpConfig, error) {
-	return buildSMTPConfigForLocale(host, portRaw, secure, username, password, from, replyTo, localeZhCN)
+	return buildSMTPConfigForLocale(host, portRaw, secure, username, password, from, replyTo, defaultAppLocale)
 }
 
 func buildSMTPConfigForLocale(host, portRaw string, secure bool, username, password, from, replyTo string, locale appLocale) (smtpConfig, error) {
 	if host == "" || portRaw == "" || from == "" {
-		return smtpConfig{}, errors.New(tr(locale, "SMTP 邮件通知未配置完整", "SMTP email notification is incomplete"))
+		return smtpConfig{}, errors.New(serverText(locale, "smtp.incomplete"))
 	}
 	port, err := strconv.Atoi(portRaw)
 	if err != nil || port <= 0 || port > 65535 {
-		return smtpConfig{}, errors.New(tr(locale, "SMTP 端口无效", "Invalid SMTP port"))
+		return smtpConfig{}, errors.New(serverText(locale, "smtp.invalidPort"))
 	}
 	if (username == "") != (password == "") {
-		return smtpConfig{}, errors.New(tr(locale, "SMTP 用户名和密码必须同时填写", "SMTP username and password must be filled together"))
+		return smtpConfig{}, errors.New(serverText(locale, "smtp.usernamePasswordTogether"))
 	}
 	return smtpConfig{
 		Host:     host,
@@ -169,18 +169,18 @@ func requireNonEmpty(label string, value string) (string, error) {
 func localizedFieldLabel(locale appLocale, key string) string {
 	switch key {
 	case "wechatWebhookURL":
-		return tr(locale, "企业微信机器人 Webhook URL", "WeCom bot Webhook URL")
+		return serverText(locale, "service.wechatWebhookURL")
 	case "barkServerURL":
-		return tr(locale, "Bark 服务器地址", "Bark server URL")
+		return serverText(locale, "service.barkServerURL")
 	case "barkDeviceKey":
-		return tr(locale, "Bark 设备 Key", "Bark device key")
+		return serverText(locale, "service.barkDeviceKey")
 	default:
 		return key
 	}
 }
 
 func requiredFieldError(locale appLocale, label string) error {
-	return fmt.Errorf(tr(locale, "%s 不能为空", "%s cannot be empty"), label)
+	return errors.New(serverFormat(locale, "common.requiredField", map[string]interface{}{"label": label}))
 }
 
 func requireNonEmptyLocalized(locale appLocale, label string, value string) (string, error) {

@@ -1,3 +1,4 @@
+// error domain 映射稳定后端 error code；前端展示只依赖 code，不导入服务端翻译文本。
 import { msg } from "@lingui/core/macro";
 
 export const messages = [

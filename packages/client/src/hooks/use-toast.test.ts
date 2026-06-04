@@ -1,3 +1,4 @@
+// toast hook 测试保护旧 toast API 到 sonner 的兼容适配，避免调用点迁移期间通知丢失。
 import { describe, expect, it, vi } from "vitest";
 import { toast, useToast } from "./use-toast";
 

@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, Ban, Filter, Image as ImageIcon, RotateCcw } from "lucide-react";
+import { AlertTriangle, Ban, Filter, RotateCcw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { VirtualizedList } from "@/components/ui/virtualized-list";
-import { FaviconResultImage } from "@/components/favicon-result-image";
 import { ImportLogoEditor, type DeferredLogoAsset } from "@/components/import-logo-editor";
+import { SubscriptionLogo } from "@/components/subscription-logo";
 import { useI18n } from "@/i18n/I18nProvider";
 import type { MessageKey } from "@/i18n/messages";
 import type { ImportConflictMode, ImportItemAction, ImportPreviewItem, ImportPreviewResponse, ImportSummary } from "@/lib/api/schemas/import-export";
@@ -36,9 +36,12 @@ const PREVIEW_FILTER_LABEL_KEYS: Record<PreviewFilter, MessageKey> = {
 };
 
 interface ImportPreviewListProps {
+  /** 解析后的导入载荷与暂存资产；Logo 编辑只更新这份前端暂存态，真正持久化发生在 apply 阶段。 */
   prepared: PreparedImport;
+  /** 服务端预览结果是冲突/错误的事实来源，前端只允许叠加筛选和手动跳过。 */
   preview: ImportPreviewResponse;
   filter: PreviewFilter;
+  /** 手动跳过以原始导入 index 标识，避免虚拟列表筛选后行号变化误作用到其他订阅。 */
   skippedIndexes: ReadonlySet<number>;
   onFilterChange: (filter: PreviewFilter) => void;
   onLogoChange: (index: number, value: string | null, asset?: DeferredLogoAsset) => void;
@@ -110,6 +113,7 @@ export function recomputePreviewForConflictMode(
   conflictMode: ImportConflictMode,
   skippedIndexes: ReadonlySet<number> = new Set<number>(),
 ): ImportPreviewResponse {
+  // 切换冲突策略只重算可恢复项；错误项和用户手动跳过必须保持优先级，避免前端覆盖服务端校验结论。
   const items = preview.items.map((item) => {
     if (skippedIndexes.has(item.index)) return { ...item, action: "skip" as const };
     if (item.errors.length > 0 || item.action === "error") return { ...item, action: "error" as const };
@@ -218,6 +222,7 @@ function ImportPreviewLogo({ prepared, index, name }: { prepared: PreparedImport
     if (!asset || asset.previewUrl || subscription?.logo) return;
     let revokedUrl: string | null = null;
     let cancelled = false;
+    // ZIP/SQLite 导入资产按需解包成 object URL；虚拟列表会频繁卸载行，清理逻辑必须同时处理未完成的异步读取和已创建 URL。
     void loadImportAssetBlob(asset).then((blob) => {
       if (cancelled) return;
       revokedUrl = URL.createObjectURL(blob);
@@ -230,13 +235,7 @@ function ImportPreviewLogo({ prepared, index, name }: { prepared: PreparedImport
   }, [asset, subscription?.logo]);
 
   return (
-    <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border bg-secondary/40 p-1">
-      {src ? (
-        <FaviconResultImage src={src} alt={`${name} Logo`} className="media-thumbnail-image" />
-      ) : (
-        <ImageIcon className="h-5 w-5 text-muted-foreground" />
-      )}
-    </div>
+    <SubscriptionLogo name={name} logo={src} size="sm" className="h-11 w-11" />
   );
 }
 

@@ -1,3 +1,4 @@
+// ViewportHeightSync 测试保护 visualViewport CSS 变量，移动端软键盘布局依赖这些变量稳定更新。
 import { act, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ViewportHeightSync } from "./viewport-height-sync";

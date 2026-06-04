@@ -1,5 +1,7 @@
 package main
 
+// 本文件测试外部 cron route 的 Bearer secret、防 dry-run 污染和通知任务执行边界。
+
 import (
 	"encoding/json"
 	"net/http"

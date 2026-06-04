@@ -1,9 +1,11 @@
 services:
   web:
+    # 本地源码构建入口：适合开发者验证 Dockerfile；正式部署建议使用 deploy/docker-compose.yml 的固定镜像。
     build:
       context: .
       dockerfile: Dockerfile
     environment:
+      # PB_ENCRYPTION_KEY 必须由部署者提供 32 字符值；空值只适合首次本地试跑，不适合生产升级。
       GOMEMLIMIT: ${GOMEMLIMIT:-128MiB}
       TZ: ${TZ:-Asia/Shanghai}
       APP_URL: ${APP_URL:-http://localhost:3000}
@@ -23,8 +25,10 @@ services:
       NOTIFICATION_MAX_RETRIES: ${NOTIFICATION_MAX_RETRIES:-3}
       NOTIFICATION_STALE_SENDING_MINUTES: ${NOTIFICATION_STALE_SENDING_MINUTES:-15}
     volumes:
+      # PocketBase SQLite、上传文件和迁移状态都在 /pb_data，重建容器时必须保留。
       - renewlet-pb-data:/pb_data
     ports:
+      # 容器内固定监听 3000，宿主机端口由 PORT 控制，便于反代或多实例部署。
       - "${PORT:-3000}:3000"
     healthcheck:
       test: [ "CMD", "/renewlet", "healthcheck" ]

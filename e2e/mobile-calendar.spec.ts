@@ -1,3 +1,4 @@
+// 移动端日历 E2E 关注真实 viewport 下的日历格子、详情弹层和横向溢出；这些回归通常不会被单元测试捕捉。
 import { expect, test, type Page } from "@playwright/test";
 import { expectNoHorizontalOverflow } from "./support/layout";
 import { uniqueE2EName } from "./support/subscriptions";
@@ -28,6 +29,7 @@ async function getCurrentMonthCalendarDates(page: Page) {
 }
 
 async function createCalendarSubscriptionRecord(page: Page, seed: CalendarSubscriptionSeed) {
+  // 直接种 PocketBase 记录可以把测试焦点留在日历布局上；认证仍读取真实登录态，避免绕过用户隔离边界。
   const result = await page.evaluate(async (payload) => {
     const authRaw = window.localStorage.getItem("pocketbase_auth");
     if (!authRaw) {

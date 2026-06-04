@@ -1,3 +1,4 @@
+// 通知 schema 测试保护历史响应的空数组和 union 形状，避免前端为旧 null 契约恢复兼容层。
 import { describe, expect, it } from "vitest";
 import { notificationHistoryResponseSchema } from "./notifications";
 

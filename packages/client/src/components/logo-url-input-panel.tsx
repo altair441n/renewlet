@@ -15,9 +15,12 @@ import {
 import { cn } from "@/lib/utils";
 
 interface LogoUrlInputPanelProps {
+  /** 当前持久化的 Logo URL；非法历史值不会回填到输入框，避免用户误保存旧风险值。 */
   value?: string | null | undefined;
+  /** 只在校验通过后输出规范化 URL；调用方负责关闭弹层或写入表单。 */
   onApply: (value: string) => void;
   className?: string | undefined;
+  /** 小尺寸用于导入 sheet，桌面表单保持默认密度。 */
   size?: "sm" | "md" | undefined;
 }
 
@@ -33,9 +36,16 @@ const validationMessageKeys: Record<LogoUrlValidationCode, MessageKey> = {
 function initialLogoUrl(value: string | null | undefined): string {
   if (!value) return "";
   const validation = validateCustomLogoUrlInput(value);
+  // 只回填当前输入框契约允许的 http(s) 外链；私有资产路径和旧非法值由上传/选择流程管理。
   return validation.ok ? validation.value : "";
 }
 
+/**
+ * LogoUrlInputPanel 处理用户手填 Logo 外链。
+ *
+ * 预览阶段会按当前页面协议临时升级 http 图片；真正持久化仍保存用户输入的规范化 URL，
+ * 让后端和后续导出能保留原始外部引用。
+ */
 export function LogoUrlInputPanel({
   value,
   onApply,

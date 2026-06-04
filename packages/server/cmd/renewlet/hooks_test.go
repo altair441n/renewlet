@@ -1,5 +1,7 @@
 package main
 
+// 本文件测试 PocketBase hooks 的持久层兜底，确保 API、SDK 和管理后台写入都无法绕过订阅/资产契约。
+
 import (
 	"bytes"
 	"encoding/json"

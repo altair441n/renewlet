@@ -6,6 +6,7 @@ const IMPORT_MESSAGE_KEYS: Record<string, MessageKey> = {
   BILLING_CYCLE_INVALID: "import.error.billingCycleInvalid",
   IMPORT_CONFIDENCE_INVALID: "import.error.confidenceInvalid",
   IMPORT_ERROR_UNRECOGNIZED_FILE: "import.error.unrecognizedFile",
+  IMPORT_ERROR_WALLOS_TABLE_TOO_LARGE: "import.error.wallosTableTooLarge",
   IMPORT_ERROR_WORKER_PARSE_FAILED: "import.error.workerParseFailed",
   IMPORT_ERROR_WORKER_UNSUPPORTED: "import.error.workerUnsupported",
   IMPORT_KEY_REQUIRED: "import.error.keyRequired",
@@ -18,6 +19,9 @@ const IMPORT_MESSAGE_KEYS: Record<string, MessageKey> = {
   IMPORT_WARNING_INVALID_WEBSITE: "import.warning.invalidWebsite",
   IMPORT_WARNING_LOW_CONFIDENCE_KEY: "import.warning.lowConfidenceKey",
   IMPORT_WARNING_LOW_CONFIDENCE_NAME_MATCHED: "import.warning.lowConfidenceNameMatched",
+  IMPORT_WARNING_RENEWLET_LEGACY_PRICE_DEFAULTED: "import.warning.renewletLegacyPriceDefaulted",
+  IMPORT_WARNING_RENEWLET_LEGACY_LOGO_DROPPED: "import.warning.renewletLegacyLogoDropped",
+  IMPORT_WARNING_RENEWLET_LEGACY_TAGS_TRIMMED: "import.warning.renewletLegacyTagsTrimmed",
   IMPORT_WARNING_WALLOS_CURRENCY_ID_ONLY: "import.warning.wallosCurrencyIdOnly",
   IMPORT_WARNING_WALLOS_DISPLAY_LOW_CONFIDENCE: "import.warning.wallosDisplayLowConfidence",
   IMPORT_WARNING_WALLOS_EXTERNAL_LOGO: "import.warning.wallosExternalLogo",
@@ -28,10 +32,18 @@ const IMPORT_MESSAGE_KEYS: Record<string, MessageKey> = {
 };
 
 const IMPORT_DATE_FIELD_KEYS: Record<string, MessageKey> = {
+  renewletDueDate: "import.field.renewletDueDate",
+  renewletStartDate: "import.field.renewletStartDate",
+  renewletTrialEndDate: "import.field.renewletTrialEndDate",
   wallosDueDate: "import.field.wallosDueDate",
   wallosStartDate: "import.field.wallosStartDate",
 };
 
+/**
+ * formatImportMessage 将导入 warning/error code 转成本地化文案。
+ *
+ * 导入 payload 和服务端响应只保存稳定 code；这里是唯一展示翻译边界，避免解析层直接依赖 UI 文案。
+ */
 export function formatImportMessage(message: string, t: Translate): string {
   const parts = message.split("|");
   const code = parts[0] ?? "";
@@ -51,6 +63,27 @@ export function formatImportMessage(message: string, t: Translate): string {
   }
   if (code === "IMPORT_WARNING_CURRENCY_SYMBOL_AMBIGUOUS") {
     return t("import.warning.currencySymbolAmbiguous", { symbol: parts[1] ?? "", currency: parts[2] ?? "" });
+  }
+  if (code === "IMPORT_WARNING_RENEWLET_LEGACY_CURRENCY_DEFAULTED") {
+    return t("import.warning.renewletLegacyCurrencyDefaulted", { fallback: parts[1] ?? "" });
+  }
+  if (code === "IMPORT_WARNING_RENEWLET_LEGACY_BILLING_CYCLE_DEFAULTED") {
+    return t("import.warning.renewletLegacyBillingCycleDefaulted", { fallback: parts[1] ?? "" });
+  }
+  if (code === "IMPORT_WARNING_RENEWLET_LEGACY_STATUS_DEFAULTED") {
+    return t("import.warning.renewletLegacyStatusDefaulted", { fallback: parts[1] ?? "" });
+  }
+  if (code === "IMPORT_WARNING_RENEWLET_LEGACY_CUSTOM_DAYS_DEFAULTED") {
+    return t("import.warning.renewletLegacyCustomDaysDefaulted", { fallback: parts[1] ?? "" });
+  }
+  if (code === "IMPORT_WARNING_RENEWLET_LEGACY_REMINDER_DAYS_DEFAULTED") {
+    return t("import.warning.renewletLegacyReminderDaysDefaulted", { fallback: parts[1] ?? "" });
+  }
+  if (code === "IMPORT_WARNING_RENEWLET_LEGACY_REPEAT_INTERVAL_DEFAULTED") {
+    return t("import.warning.renewletLegacyRepeatIntervalDefaulted", { fallback: parts[1] ?? "" });
+  }
+  if (code === "IMPORT_WARNING_RENEWLET_LEGACY_REPEAT_WINDOW_DEFAULTED") {
+    return t("import.warning.renewletLegacyRepeatWindowDefaulted", { fallback: parts[1] ?? "" });
   }
   const key = IMPORT_MESSAGE_KEYS[code];
   return key ? t(key) : message;

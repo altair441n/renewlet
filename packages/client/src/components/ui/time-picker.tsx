@@ -14,7 +14,9 @@ import { cn } from '@/lib/utils';
 import { useI18n } from '@/i18n/I18nProvider';
 
 interface TimePickerProps {
+  /** `HH:mm` 本地墙钟时间；必须与 settings.timeZone 一起解释为 UTC instant。 */
   value: string;
+  /** 输出仍为 `HH:mm`，组件不做时区换算。 */
   onChange: (value: string) => void;
   className?: string;
 }
@@ -125,6 +127,7 @@ function WheelColumn({
 
   const scheduleScrollEndSnap = useCallback(() => {
     clearScrollEndTimer();
+    // Safari/WebView 仍可能没有可靠 scrollend，保留 debounce 兜底保证滚轮最终吸附到合法项。
     scrollEndTimerRef.current = setTimeout(() => {
       scrollEndTimerRef.current = null;
       snapToNearest();
@@ -397,7 +400,6 @@ export function TimePicker({ value, onChange, className }: TimePickerProps) {
         align="start"
         sideOffset={8}
       >
-        {/* 滚轮选择器 */}
         <div className="flex items-center justify-center gap-2 p-4 pb-2">
           <WheelColumn
             options={HOUR_OPTIONS}
@@ -420,7 +422,6 @@ export function TimePicker({ value, onChange, className }: TimePickerProps) {
           />
         </div>
 
-        {/* 快捷选择 */}
         <div className="border-t border-border p-3">
           <div className="grid grid-cols-4 gap-2">
             {quickTimes.map(({ label, desc }) => (

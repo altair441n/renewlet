@@ -1,3 +1,4 @@
+/** shared runtime 常量是 Go DTO、Cloudflare Worker 和前端 schema 的共同枚举边界。 */
 export const SUPPORTED_LOCALES = ["zh-CN", "en-US"] as const;
 export type Locale = (typeof SUPPORTED_LOCALES)[number];
 
@@ -7,12 +8,15 @@ export type ThemeMode = (typeof THEME_MODES)[number];
 export const THEME_VARIANTS = ["emerald", "ocean", "sunset", "lavender", "rose", "custom"] as const;
 export type ThemeVariant = (typeof THEME_VARIANTS)[number];
 
+/** `expired` 是当前正式状态，状态变更必须同步 D1、PocketBase hook、前端筛选和导入导出。 */
 export const SUBSCRIPTION_STATUSES = ["trial", "active", "expired", "paused", "cancelled"] as const;
 export type SubscriptionStatus = (typeof SUBSCRIPTION_STATUSES)[number];
 
+/** `one-time` 不参与续费提醒和月度折算；`custom` 是唯一允许 customDays 的周期。 */
 export const BILLING_CYCLES = ["weekly", "monthly", "quarterly", "semi-annual", "annual", "custom", "one-time"] as const;
 export type BillingCycle = (typeof BILLING_CYCLES)[number];
 
+/** 通知渠道枚举同时约束设置 payload、cron result 和历史面板筛选。 */
 export const NOTIFICATION_CHANNELS = ["telegram", "notifyx", "webhook", "wechat", "email", "bark"] as const;
 export type NotificationChannel = (typeof NOTIFICATION_CHANNELS)[number];
 
@@ -25,7 +29,9 @@ export type RepeatReminderWindow = (typeof REPEAT_REMINDER_WINDOWS)[number];
 export const EXCHANGE_RATE_PROVIDERS = ["exchange-api", "floatrates"] as const;
 export type ExchangeRateProvider = (typeof EXCHANGE_RATE_PROVIDERS)[number];
 
+/** 跨 Go/PocketBase、D1 和前端的 date-only 品牌类型，避免续费日期被误当成带时区 instant。 */
 export type DateOnly = string & { readonly __brand: "DateOnly" };
+/** 通知调度保存用户本地墙钟时间；真实 UTC instant 由后端按 IANA timezone 推导。 */
 export type LocalTime = string & { readonly __brand: "LocalTime" };
 
 export const INHERIT_REMINDER_DAYS = -1;
@@ -49,6 +55,7 @@ export function isValidLocalTime(value: string): boolean {
 
 export function isValidTimeZone(value: string): boolean {
   try {
+    // Intl 是浏览器、Node 和 Workers 都可用的 IANA timezone 共同裁判，避免维护本地时区表。
     new Intl.DateTimeFormat("en-US", { timeZone: value }).format(new Date());
     return true;
   } catch {

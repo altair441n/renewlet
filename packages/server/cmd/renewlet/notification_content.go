@@ -17,17 +17,23 @@ import (
 	"github.com/pocketbase/pocketbase/core"
 )
 
+const notificationSubscriptionPageSize = 500
+
 // listNotificationSubscriptions 读取通知计算所需的订阅投影。
 func listNotificationSubscriptions(app core.App, userID string) ([]notificationSubscription, error) {
-	rows, err := app.FindAllRecords("subscriptions", dbx.HashExp{"user": userID})
-	if err != nil {
-		return nil, err
+	subscriptions := []notificationSubscription{}
+	for offset := 0; ; offset += notificationSubscriptionPageSize {
+		rows, err := app.FindRecordsByFilter("subscriptions", "user = {:user}", "-created", notificationSubscriptionPageSize, offset, dbx.Params{"user": userID})
+		if err != nil {
+			return nil, err
+		}
+		for _, row := range rows {
+			subscriptions = append(subscriptions, notificationSubscriptionFromRecord(row))
+		}
+		if len(rows) < notificationSubscriptionPageSize {
+			return subscriptions, nil
+		}
 	}
-	subscriptions := make([]notificationSubscription, 0, len(rows))
-	for _, row := range rows {
-		subscriptions = append(subscriptions, notificationSubscriptionFromRecord(row))
-	}
-	return subscriptions, nil
 }
 
 func notificationSubscriptionFromRecord(row *core.Record) notificationSubscription {
@@ -74,8 +80,8 @@ func effectiveReminderDays(sub notificationSubscription, settings appSettings) i
 func buildTestNotification(now time.Time, settings appSettings) notificationMessage {
 	locale := normalizeAppLocale(settings.Locale)
 	return notificationMessage{
-		Title:      tr(locale, "Renewlet 测试通知", "Renewlet test notification"),
-		Content:    tr(locale, "如果你收到了这条消息，说明该通知渠道配置可用。", "If you received this message, this notification channel is working."),
+		Title:      serverText(locale, "notification.content.testTitle"),
+		Content:    serverText(locale, "notification.content.testBody"),
 		Timestamp:  formatNotificationTime(now, settings.Timezone),
 		Items:      []notificationContentItem{},
 		HasPayload: true,
@@ -235,21 +241,21 @@ func buildNotificationContent(now time.Time, settings appSettings, items []notif
 
 	blocks := []string{}
 	if len(renewals) > 0 {
-		blocks = append(blocks, tr(locale, "即将续费：", "Upcoming renewals:")+"\n"+strings.Join(renewals, "\n"))
+		blocks = append(blocks, serverText(locale, "notification.content.renewalBlock")+"\n"+strings.Join(renewals, "\n"))
 	}
 	if len(trials) > 0 {
-		blocks = append(blocks, tr(locale, "试用结束：", "Trial ending:")+"\n"+strings.Join(trials, "\n"))
+		blocks = append(blocks, serverText(locale, "notification.content.trialBlock")+"\n"+strings.Join(trials, "\n"))
 	}
 	if len(expired) > 0 {
-		blocks = append(blocks, tr(locale, "已过期（未更新下次扣费日期）：", "Expired (next billing date not updated):")+"\n"+strings.Join(expired, "\n"))
+		blocks = append(blocks, serverText(locale, "notification.content.expiredBlock")+"\n"+strings.Join(expired, "\n"))
 	}
 	hasPayload := len(blocks) > 0
-	content := tr(locale, "今天没有需要提醒的订阅（你可以在设置页关闭“每日通知”，或调整各订阅的提醒天数）。", "No subscriptions need reminders today. You can disable daily notifications in Settings or adjust reminder days for subscriptions.")
+	content := serverText(locale, "notification.content.empty")
 	if hasPayload {
 		content = strings.Join(blocks, "\n\n")
 	}
 	return notificationMessage{
-		Title:      tr(locale, "Renewlet 订阅提醒", "Renewlet subscription reminder"),
+		Title:      serverText(locale, "notification.content.title"),
 		Content:    content,
 		Timestamp:  formatNotificationTime(now, settings.Timezone),
 		Items:      items,
@@ -258,31 +264,27 @@ func buildNotificationContent(now time.Time, settings appSettings, items []notif
 }
 
 func formatNotificationItemLine(item notificationContentItem, locale appLocale) string {
-	extra := fmt.Sprintf(tr(locale, "提前 %d 天提醒", "%d days before"), item.ReminderDays)
+	extra := serverFormat(locale, "notification.content.reminderDays", map[string]interface{}{"days": item.ReminderDays})
 	if item.Type == "trial" {
-		extra = fmt.Sprintf(tr(locale, "试用结束，提前 %d 天提醒", "trial ends, %d days before"), item.ReminderDays)
+		extra = serverFormat(locale, "notification.content.trialReminderDays", map[string]interface{}{"days": item.ReminderDays})
 	} else if item.Type == "expired" {
-		extra = tr(locale, "已过期", "expired")
+		extra = serverText(locale, "notification.content.expiredStatus")
 	}
 	if item.RepeatReminder != nil {
-		extra += tr(locale, "；", "; ") + formatRepeatReminderText(item.RepeatReminder.Interval, locale)
+		extra += serverText(locale, "notification.content.repeatSeparator") + formatRepeatReminderText(item.RepeatReminder.Interval, locale)
 	}
-	if locale == localeEnUS {
-		return fmt.Sprintf("- %s: %s, %s %s (%s)", item.Name, item.TargetDate, formatAmount(item.Price), item.Currency, extra)
-	}
-	return fmt.Sprintf("- %s：%s，%s %s（%s）", item.Name, item.TargetDate, formatAmount(item.Price), item.Currency, extra)
+	return serverFormat(locale, "notification.content.itemLine", map[string]interface{}{
+		"name":       item.Name,
+		"targetDate": item.TargetDate,
+		"amount":     formatAmount(item.Price),
+		"currency":   item.Currency,
+		"extra":      extra,
+	})
 }
 
 func formatRepeatReminderText(interval string, locale appLocale) string {
 	hours := repeatReminderIntervalHours(interval)
-	if locale == localeEnUS {
-		unit := "hours"
-		if hours == 1 {
-			unit = "hour"
-		}
-		return fmt.Sprintf("repeat reminder, every %d %s", hours, unit)
-	}
-	return fmt.Sprintf("重复提醒，每 %d 小时", hours)
+	return serverFormat(locale, "notification.content.repeatEvery", map[string]interface{}{"hours": hours})
 }
 
 func formatAmount(amount float64) string {

@@ -5,6 +5,13 @@ import { cleanBuiltInIconSourceSettingsPatch, mergeBuiltInIconSourceSettings } f
 import type { AdminUser } from "@renewlet/shared/schemas/admin";
 import type { AssetRow, Env, NotificationJobRow, SubscriptionRow, UserRow } from "./types";
 
+/**
+ * D1 数据访问层只暴露 Renewlet 产品语义。
+ *
+ * Worker 运行面不模拟 PocketBase REST；所有 D1 snake_case 行都必须在这里转换为 shared API schema，
+ * 避免前端按运行面维护两套数据形状。
+ */
+
 const userColumnNames = [
   "id",
   "email",
@@ -30,6 +37,7 @@ const subscriptionColumnNames = [
   "custom_days",
   "category",
   "status",
+  "pinned",
   "payment_method",
   "start_date",
   "next_billing_date",
@@ -80,10 +88,12 @@ export const SUBSCRIPTION_COLUMNS = subscriptionColumnNames.join(", ");
 export const ASSET_COLUMNS = assetColumnNames.join(", ");
 export const NOTIFICATION_JOB_COLUMNS = notificationJobColumnNames.join(", ");
 
+/** Worker 统一使用 ISO instant；用户本地日期/时间只保存在业务字段中。 */
 export function nowIso(): string {
   return new Date().toISOString();
 }
 
+/** D1 主键带领域前缀，便于日志和导入排查；安全性不依赖 id 不可猜。 */
 export function newId(prefix: string): string {
   return `${prefix}_${crypto.randomUUID().replaceAll("-", "")}`;
 }
@@ -92,10 +102,12 @@ export function boolToInt(value: boolean): number {
   return value ? 1 : 0;
 }
 
+/** D1 没有布尔类型；所有公开响应都应在出站前把 0/1 收敛回 boolean。 */
 export function intToBool(value: number | null | undefined): boolean {
   return value === 1;
 }
 
+/** toAdminUser 是管理员用户管理响应的出站门，不能直接把 password_hash 等 D1 字段透给前端。 */
 export function toAdminUser(row: UserRow): AdminUser {
   return {
     id: row.id,
@@ -109,35 +121,43 @@ export function toAdminUser(row: UserRow): AdminUser {
   };
 }
 
+/** email 查找在 SQL 层 lower 对齐，避免登录大小写差异制造重复账号语义。 */
 export async function findUserByEmail(env: Env, email: string): Promise<UserRow | null> {
   return await env.DB.prepare(`SELECT ${USER_COLUMNS} FROM users WHERE lower(email) = lower(?) LIMIT 1`).bind(email).first<UserRow>();
 }
 
+/** findUserById 只服务认证和管理员路径；公开用户响应仍需经过 toAdminUser/session schema。 */
 export async function findUserById(env: Env, id: string): Promise<UserRow | null> {
   return await env.DB.prepare(`SELECT ${USER_COLUMNS} FROM users WHERE id = ? LIMIT 1`).bind(id).first<UserRow>();
 }
 
+/** listUsers 只允许管理员调用方使用；普通用户列表能力不能从这里绕过 route 守卫暴露。 */
 export async function listUsers(env: Env): Promise<UserRow[]> {
   const result = await env.DB.prepare(`SELECT ${USER_COLUMNS} FROM users ORDER BY created_at DESC`).all<UserRow>();
   return result.results;
 }
 
+/** hasEnabledAdmin 是首装状态机的事实查询，setup UI 不能只信任环境变量。 */
 export async function hasEnabledAdmin(env: Env): Promise<boolean> {
   const row = await env.DB.prepare("SELECT id FROM users WHERE role = 'admin' AND banned = 0 LIMIT 1").first<{ id: string }>();
   return row !== null;
 }
 
+/** enabledAdminCount 支撑防自锁逻辑；最后一个启用管理员不能被降级、禁用或删除。 */
 export async function enabledAdminCount(env: Env): Promise<number> {
   const row = await env.DB.prepare("SELECT COUNT(*) AS count FROM users WHERE role = 'admin' AND banned = 0 LIMIT 1").first<{ count: number }>();
   return row?.count ?? 0;
 }
 
+/** getSettings 返回完整设置契约，调用方不需要知道 D1 中是否存在 settings 行。 */
 export async function getSettings(env: Env, userId: string): Promise<ApiAppSettings> {
   const row = await env.DB.prepare("SELECT settings_json FROM settings WHERE user_id = ? LIMIT 1").bind(userId).first<{ settings_json: string }>();
+  // 空库用户按当前 shared defaults 启动；不要写回 D1，否则首次访问会制造隐式迁移副作用。
   if (!row) return createDefaultAppSettings();
   return normalizeSettingsJson(row.settings_json);
 }
 
+/** 保存设置前重跑完整 shared schema，确保 D1 写入后的数据仍可被 Go/前端同一契约消费。 */
 export async function putSettings(env: Env, userId: string, settings: ApiAppSettings): Promise<ApiAppSettings> {
   const parsed = appSettingsSchema.parse(settings);
   const timestamp = nowIso();
@@ -168,16 +188,19 @@ export function normalizeSettingsJson(value: string): ApiAppSettings {
   return createDefaultAppSettings();
 }
 
+/** getCustomConfig 保留用户自定义文本原貌；产品内置标签翻译不在 Worker 里生成。 */
 export async function getCustomConfig(env: Env, userId: string): Promise<unknown> {
   const row = await env.DB.prepare("SELECT config_json FROM custom_configs WHERE user_id = ? LIMIT 1").bind(userId).first<{ config_json: string }>();
   if (!row) return { categories: [], statuses: [], paymentMethods: [], currencies: [] };
   try {
     return JSON.parse(row.config_json) as unknown;
   } catch {
+    // 自定义配置坏 JSON 只回到空结构；最终规范化仍在前端 domain，避免 Worker 复制 UI 规则。
     return { categories: [], statuses: [], paymentMethods: [], currencies: [] };
   }
 }
 
+/** putCustomConfig 只写当前用户配置 JSON；结构语义由 shared schema 和前端 domain 共同约束。 */
 export async function putCustomConfig(env: Env, userId: string, config: unknown): Promise<unknown> {
   const timestamp = nowIso();
   await env.DB.prepare(`
@@ -188,6 +211,7 @@ export async function putCustomConfig(env: Env, userId: string, config: unknown)
   return config;
 }
 
+/** 将 D1 订阅行转换为公开 API 形状；这是 Worker 订阅响应的唯一出站契约门。 */
 export function toApiSubscription(row: SubscriptionRow): ApiSubscription {
   const tags = parseStringArray(row.tags_json);
   const extra = parseJsonObject(row.extra_json);
@@ -202,6 +226,7 @@ export function toApiSubscription(row: SubscriptionRow): ApiSubscription {
     ...(row.custom_days === null ? {} : { customDays: row.custom_days }),
     category: row.category,
     status: row.status,
+    pinned: intToBool(row.pinned),
     ...(row.payment_method ? { paymentMethod: row.payment_method } : {}),
     startDate: row.start_date,
     nextBillingDate: row.next_billing_date,
@@ -225,15 +250,72 @@ export async function getSubscription(env: Env, userId: string, id: string): Pro
   return await env.DB.prepare(`SELECT ${SUBSCRIPTION_COLUMNS} FROM subscriptions WHERE user_id = ? AND id = ? LIMIT 1`).bind(userId, id).first<SubscriptionRow>();
 }
 
+/** countSubscriptions 只统计当前用户，是分页元数据和管理概览的用户隔离边界。 */
+export async function countSubscriptions(env: Env, userId: string): Promise<number> {
+  const row = await env.DB.prepare("SELECT COUNT(*) AS count FROM subscriptions WHERE user_id = ? LIMIT 1").bind(userId).first<{ count: number }>();
+  return row?.count ?? 0;
+}
+
+/** listSubscriptions 用游标分页拉全量，供通知 cron/ICS 这类后台任务复用。 */
 export async function listSubscriptions(env: Env, userId: string): Promise<SubscriptionRow[]> {
-  const result = await env.DB.prepare(`SELECT ${SUBSCRIPTION_COLUMNS} FROM subscriptions WHERE user_id = ? ORDER BY created_at DESC`).bind(userId).all<SubscriptionRow>();
+  const rows: SubscriptionRow[] = [];
+  let cursor: string | undefined;
+  for (;;) {
+    const page = await listSubscriptionsPage(env, userId, { limit: 100, cursor });
+    rows.push(...page);
+    if (page.length < 100) return rows;
+    cursor = subscriptionCursor(page[page.length - 1]!);
+  }
+}
+
+/** 分页只按当前 user_id 查询，游标不能跨用户复用或泄露其它用户订阅。 */
+export async function listSubscriptionsPage(
+  env: Env,
+  userId: string,
+  options: { limit: number; cursor?: string | undefined },
+): Promise<SubscriptionRow[]> {
+  const cursor = parseSubscriptionCursor(options.cursor);
+  const limit = Math.max(1, Math.min(options.limit, 101));
+  if (!cursor) {
+    const result = await env.DB.prepare(`SELECT ${SUBSCRIPTION_COLUMNS} FROM subscriptions WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT ?`)
+      .bind(userId, limit)
+      .all<SubscriptionRow>();
+    return result.results;
+  }
+  // 游标排序字段必须和 ORDER BY 完全一致，避免同一 created_at 下漏读或重复读。
+  const result = await env.DB.prepare(`
+    SELECT ${SUBSCRIPTION_COLUMNS} FROM subscriptions
+    WHERE user_id = ? AND (created_at < ? OR (created_at = ? AND id < ?))
+    ORDER BY created_at DESC, id DESC
+    LIMIT ?
+  `).bind(userId, cursor.createdAt, cursor.createdAt, cursor.id, limit).all<SubscriptionRow>();
   return result.results;
 }
 
+export function subscriptionCursor(row: SubscriptionRow): string {
+  return btoa(JSON.stringify({ createdAt: row.created_at, id: row.id }));
+}
+
+/** 游标只是分页位置，不是权限凭据；解析失败时调用方按 bad request 处理。 */
+export function parseSubscriptionCursor(value?: string): { createdAt: string; id: string } | null {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(atob(value)) as unknown;
+    if (!parsed || typeof parsed !== "object") return null;
+    const record = parsed as Record<string, unknown>;
+    if (typeof record["createdAt"] !== "string" || typeof record["id"] !== "string") return null;
+    return { createdAt: record["createdAt"], id: record["id"] };
+  } catch {
+    return null;
+  }
+}
+
 export async function getAsset(env: Env, userId: string, id: string): Promise<AssetRow | null> {
+  // D1 metadata 是 R2 私有资产的权限索引；所有读取都必须带 userId 过滤。
   return await env.DB.prepare(`SELECT ${ASSET_COLUMNS} FROM assets WHERE user_id = ? AND id = ? LIMIT 1`).bind(userId, id).first<AssetRow>();
 }
 
+/** listAssets 是 Logo/Icon 选择器的数据源；kind 和 userId 共同限制可见资产集合。 */
 export async function listAssets(env: Env, userId: string, kind: string, page: number, perPage: number): Promise<{ items: AssetRow[]; total: number }> {
   const offset = (page - 1) * perPage;
   const totalRow = await env.DB.prepare("SELECT COUNT(*) AS count FROM assets WHERE user_id = ? AND kind = ? LIMIT 1").bind(userId, kind).first<{ count: number }>();
@@ -243,6 +325,7 @@ export async function listAssets(env: Env, userId: string, kind: string, page: n
   return { items: rows.results, total: totalRow?.count ?? 0 };
 }
 
+/** parseStringArray 用于读取历史 JSON 字段；坏值回落为空数组，不把脏数据继续传给前端。 */
 export function parseStringArray(value: string): string[] {
   try {
     const parsed = JSON.parse(value) as unknown;
@@ -252,6 +335,7 @@ export function parseStringArray(value: string): string[] {
   }
 }
 
+/** parseJsonObject 保证 extra/result 等动态 JSON 出站时至少是普通对象。 */
 export function parseJsonObject(value: string): Record<string, unknown> {
   try {
     const parsed = JSON.parse(value) as unknown;
@@ -261,6 +345,7 @@ export function parseJsonObject(value: string): Record<string, unknown> {
   }
 }
 
+/** parseJobResult 容忍历史任务结果坏 JSON，通知历史面板不应因单条审计行损坏而整体失败。 */
 export function parseJobResult(row: NotificationJobRow): unknown {
   try {
     return JSON.parse(row.result_json) as unknown;

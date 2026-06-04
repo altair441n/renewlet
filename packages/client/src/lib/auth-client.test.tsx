@@ -1,3 +1,4 @@
+// auth-client 测试保护 Cloudflare session single-flight、本地缓存新鲜度和失效清理，避免会话风暴或旧 token 复活。
 import type { ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderHook, waitFor } from "@testing-library/react";

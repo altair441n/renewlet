@@ -1,3 +1,4 @@
+// subscription-billing 测试保护周期折算和一次性购买口径，统计页、首页和导出都依赖同一算法。
 import { describe, expect, it } from "vitest";
 import { assertDateOnly } from "@/lib/time/date-only";
 import { calculateNextBillingDate, toMonthlyAmount } from "./subscription-billing";

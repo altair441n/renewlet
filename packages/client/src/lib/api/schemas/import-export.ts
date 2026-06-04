@@ -1,6 +1,8 @@
+// 导入/导出 schema 的事实源在 shared；前端只做选择性 re-export，避免 preview/apply 与 Worker/Go 契约分叉。
 export {
   importApplyRequestSchema,
   importApplyResponseSchema,
+  IMPORT_APPLY_SUBSCRIPTION_LIMIT,
   importConflictModeSchema,
   importConfidenceSchema,
   importItemActionSchema,
@@ -10,6 +12,7 @@ export {
   importPreviewRequestSchema,
   importPreviewResponseSchema,
   importSourceSchema,
+  importApplySkipIndexesSchema,
   importSkipIndexesSchema,
   importSubscriptionSchema,
   importSummarySchema,

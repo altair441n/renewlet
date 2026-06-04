@@ -28,6 +28,7 @@ function requireEnv(name) {
 }
 
 function stripJsoncComments(input) {
+  // Wrangler 模板是 JSONC；CI 只需要解析并替换 binding 标识，不能引入额外依赖或执行任意 JS 配置。
   let output = "";
   let inString = false;
   let quote = "";
@@ -79,6 +80,7 @@ function stripJsoncComments(input) {
 function findBinding(config, key, binding) {
   const bindings = config[key];
   if (!Array.isArray(bindings)) throw new Error(`wrangler.jsonc must contain ${key}`);
+  // binding 名是 Worker 代码读取 env.DB/env.ASSETS_BUCKET 的契约；CI 只能替换资源 ID，不能改名。
   const match = bindings.find((item) => item && typeof item === "object" && item.binding === binding);
   if (!match) throw new Error(`wrangler.jsonc must contain ${binding} in ${key}`);
   return match;
@@ -89,11 +91,19 @@ for (const name of requiredEnv) requireEnv(name);
 const config = JSON.parse(stripJsoncComments(readFileSync(templatePath, "utf8")));
 config.name = requireEnv("WORKER_NAME");
 
+// CI 只替换租户资源标识；路由、binding 名和兼容日期仍以仓库模板为事实源。
 const d1 = findBinding(config, "d1_databases", "DB");
 d1.database_id = requireEnv("D1_DATABASE_ID");
 
 const r2 = findBinding(config, "r2_buckets", "ASSETS_BUCKET");
 r2.bucket_name = requireEnv("R2_BUCKET_NAME");
+
+config.vars = {
+  ...(config.vars && typeof config.vars === "object" ? config.vars : {}),
+  ...(process.env.RENEWLET_VERSION ? { RENEWLET_VERSION: process.env.RENEWLET_VERSION } : {}),
+  ...(process.env.RENEWLET_COMMIT ? { RENEWLET_COMMIT: process.env.RENEWLET_COMMIT } : {}),
+  ...(process.env.RENEWLET_BUILD_TIME ? { RENEWLET_BUILD_TIME: process.env.RENEWLET_BUILD_TIME } : {}),
+};
 
 writeFileSync(outputPath, `${JSON.stringify(config, null, 2)}\n`);
 console.log(`Generated Cloudflare Wrangler config: ${outputPath}`);

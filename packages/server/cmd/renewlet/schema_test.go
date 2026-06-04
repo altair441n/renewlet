@@ -1,5 +1,7 @@
 package main
 
+// 本文件测试 PocketBase schema 自愈和迁移收敛，确保 collection 字段、索引和历史 logo 数据保持当前正式契约。
+
 import (
 	"strings"
 	"testing"
@@ -11,6 +13,7 @@ import (
 func newSchemaTestApp(t *testing.T) *pocketbase.PocketBase {
 	t.Helper()
 	app := pocketbase.NewWithConfig(pocketbase.Config{DefaultDataDir: t.TempDir()})
+	registerAuthHooks(app)
 	if err := app.Bootstrap(); err != nil {
 		t.Fatal(err)
 	}
@@ -36,6 +39,7 @@ func TestEnsureSchemaCreatesContractFieldsAndIndexes(t *testing.T) {
 		"customDays":                   core.FieldTypeNumber,
 		"category":                     core.FieldTypeText,
 		"status":                       core.FieldTypeSelect,
+		"pinned":                       core.FieldTypeBool,
 		"paymentMethod":                core.FieldTypeText,
 		"startDate":                    core.FieldTypeText,
 		"nextBillingDate":              core.FieldTypeText,
@@ -93,11 +97,22 @@ func TestEnsureSchemaCreatesContractFieldsAndIndexes(t *testing.T) {
 		"created":             core.FieldTypeAutodate,
 		"updated":             core.FieldTypeAutodate,
 	})
+	assertFields(t, app, "calendar_feeds", map[string]string{
+		"user":           core.FieldTypeRelation,
+		"scope":          core.FieldTypeSelect,
+		"subscriptionId": core.FieldTypeText,
+		"token":          core.FieldTypeText,
+		"created":        core.FieldTypeAutodate,
+		"updated":        core.FieldTypeAutodate,
+	})
 
 	assertIndex(t, app, "subscriptions", "idx_subscriptions_user")
 	assertIndex(t, app, "settings", "idx_settings_user_unique")
 	assertIndex(t, app, "custom_configs", "idx_custom_configs_user_unique")
 	assertIndex(t, app, "notification_jobs", "idx_notification_jobs_user_local_time_unique")
+	assertIndex(t, app, "calendar_feeds", "idx_calendar_feeds_user_all_unique")
+	assertIndex(t, app, "calendar_feeds", "idx_calendar_feeds_token_unique")
+	assertIndex(t, app, "calendar_feeds", "idx_calendar_feeds_user_subscription_unique")
 }
 
 func TestEnsureSchemaSelfHealsExistingCollectionsWithoutAutodates(t *testing.T) {

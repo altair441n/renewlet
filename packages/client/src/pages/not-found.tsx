@@ -1,22 +1,22 @@
 /**
- * 404 页面（App Router 的 not-found）。
+ * React Router SPA 兜底 404 页面。
  *
- * 说明：
- * - 这里会记录一次 console.error，便于在开发/监控里发现错误路由访问
+ * 这里会记录一次统一客户端错误，便于开发和线上采样发现 Cloudflare Static Assets
+ * fallback 或 Docker 嵌入静态资源漏配导致的错误路由。
  */
 
 import { useEffect } from "react";
 import { usePathname } from '@/lib/router';
 import Link from '@/components/router-link';
 import { useI18n } from "@/i18n/I18nProvider";
+import { reportClientError } from "@/lib/report-client-error";
 
-/** 404 兜底页面组件。 */
 export default function NotFound() {
   const pathname = usePathname();
   const { t } = useI18n();
 
   useEffect(() => {
-    console.error("404 Error: User attempted to access non-existent route:", pathname);
+    reportClientError(new Error("not found route"), { source: "not-found", pathname });
   }, [pathname]);
 
   return (

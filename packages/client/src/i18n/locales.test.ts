@@ -1,3 +1,4 @@
+// locale 测试保护浏览器探测、localStorage 兜底和 LocalizedLabels 读取，新增语言时这里应同步扩展。
 import { describe, expect, it, vi } from "vitest";
 import { detectBrowserLocale, normalizeLocale } from "./locales";
 import { pb } from "@/lib/pocketbase";

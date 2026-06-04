@@ -10,7 +10,8 @@
  * 需要把 label/color view model 从上层传入。
  */
 
-import { useEffect, useState, type CSSProperties } from 'react';
+import { useState } from 'react';
+import type { ConfigItem } from '@/types/config';
 import {
   DEFAULT_NOTIFICATION_REMINDER_DAYS,
   INHERIT_REMINDER_DAYS,
@@ -19,11 +20,10 @@ import {
   type Subscription,
   type SubscriptionStatus,
 } from '@/types/subscription';
-import { useCustomConfig } from '@/contexts/CustomConfigContext';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { colorWithAlpha } from '@/lib/color';
-import { Calendar, MoreHorizontal, CalendarClock, Bell, CreditCard } from 'lucide-react';
+import { Calendar, MoreHorizontal, CalendarClock, Bell, CreditCard, CalendarPlus, Pencil, Pin, PinOff, Trash2 } from 'lucide-react';
 import {
   daysBetweenDateOnly,
   todayDateOnlyInTimeZone,
@@ -33,11 +33,12 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
-import { TruncatedTooltipText } from '@/components/ui/truncated-tooltip-text';
 import { AuthorizedImage } from '@/components/authorized-image';
+import { TruncatedTooltipText } from '@/components/ui/truncated-tooltip-text';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -50,19 +51,30 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useI18n } from '@/i18n/I18nProvider';
 import { localizedLabel } from '@/i18n/locales';
-import { useSettings } from '@/hooks/use-settings';
+import { AddToCalendarDialog } from '@/components/add-to-calendar-dialog';
+import { SubscriptionLogo } from '@/components/subscription-logo';
+
+export type SubscriptionCardLookup = ReadonlyMap<string, ConfigItem>;
 
 interface SubscriptionCardProps {
   /** 订阅数据（前端 domain 类型）。 */
   subscription: Subscription;
   /** 展示模式：grid（卡片）/ list（列表行）。 */
   viewMode?: 'grid' | 'list';
-  /** 点击“编辑”回调（传订阅 id）。 */
+  /** 编辑动作只传 id，页面控制器再从当前缓存快照取完整对象，避免卡片持有编辑弹窗状态。 */
   onEdit?: (id: string) => void;
-  /** 点击“删除确认”回调（传订阅 id）。 */
+  /** 删除动作只上抛 id，真正 mutation 和缓存失效统一留在页面应用层。 */
   onDelete?: (id: string) => void;
+  /** 置顶切换动作由页面持有 mutation，卡片只负责菜单入口。 */
+  onTogglePinned?: (id: string) => void;
   /** 用户 IANA 时区，用于续费/试用提示窗口。 */
   timeZone: string;
+  /** 分类配置查找表由页面级容器构建，避免虚拟列表 item 重复订阅全局配置。 */
+  categoryByValue: SubscriptionCardLookup;
+  /** 支付方式配置查找表由页面级容器构建，避免可见行滚动时重复查找全局配置。 */
+  paymentMethodByValue: SubscriptionCardLookup;
+  /** 订阅选择“继承”时展示的全局提醒天数。 */
+  inheritedReminderDays?: number | undefined;
 }
 
 /** 状态配色：用于 trial/active 等视觉提示。 */
@@ -76,16 +88,20 @@ const statusStyles: Record<SubscriptionStatus, string> = {
 
 const DEFAULT_BADGE_COLOR = "hsl(var(--primary))";
 
-type LogoTileStyle = CSSProperties & {
-  "--subscription-logo-fallback": string;
-};
-
 /** 订阅卡片。 */
-export function SubscriptionCard({ subscription, viewMode = 'grid', onEdit, onDelete, timeZone }: SubscriptionCardProps) {
-  const { config } = useCustomConfig();
-  const { data: settings } = useSettings();
+export function SubscriptionCard({
+  subscription,
+  viewMode = 'grid',
+  onEdit,
+  onDelete,
+  onTogglePinned,
+  timeZone,
+  categoryByValue,
+  paymentMethodByValue,
+  inheritedReminderDays = DEFAULT_NOTIFICATION_REMINDER_DAYS,
+}: SubscriptionCardProps) {
   const { t, locale, label, formatCurrency, formatDateOnly } = useI18n();
-  const categoryConfig = config.categories.find((c) => c.value === subscription.category);
+  const categoryConfig = categoryByValue.get(subscription.category);
   const categoryLabel = categoryConfig ? label(categoryConfig.labels) : subscription.category;
   const categoryColor = categoryConfig?.color ?? DEFAULT_BADGE_COLOR;
   const categoryBadgeStyle = {
@@ -93,12 +109,9 @@ export function SubscriptionCard({ subscription, viewMode = 'grid', onEdit, onDe
     borderColor: colorWithAlpha(categoryColor, 0.2) ?? undefined,
     color: categoryColor,
   };
-  const logoTileStyle: LogoTileStyle = {
-    "--subscription-logo-fallback": categoryColor,
-  };
 
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
-  const [logoLoadFailed, setLogoLoadFailed] = useState(false);
+  const [showAddToCalendarDialog, setShowAddToCalendarDialog] = useState(false);
   const today = todayDateOnlyInTimeZone(new Date(), timeZone);
   const daysUntilRenewal = daysBetweenDateOnly(today, subscription.nextBillingDate);
   const daysUntilTrialEnd = subscription.trialEndDate ? daysBetweenDateOnly(today, subscription.trialEndDate) : null;
@@ -110,15 +123,9 @@ export function SubscriptionCard({ subscription, viewMode = 'grid', onEdit, onDe
   const isRenewingSoon = !isOneTime && !isExpired && daysUntilRenewal <= 7 && daysUntilRenewal >= 0;
   const isTrialEndingSoon = !isExpired && subscription.status === 'trial' && daysUntilTrialEnd !== null &&
     daysUntilTrialEnd <= 3 && daysUntilTrialEnd >= 0;
-  const inheritedReminderDays = settings?.notificationReminderDays ?? DEFAULT_NOTIFICATION_REMINDER_DAYS;
 
-  // 当 logo 变化时重置错误状态（例如用户从无效 URL 换成了有效 URL）
-  useEffect(() => {
-    setLogoLoadFailed(false);
-  }, [subscription.logo]);
-
-  /** 删除确认：触发回调并关闭弹窗。 */
   const handleDeleteConfirm = () => {
+    // 删除写入交给页面 mutation；卡片只关闭本地确认框，避免 mutation 失败后留下二次确认遮罩。
     onDelete?.(subscription.id);
     setShowDeleteDialog(false);
   };
@@ -134,31 +141,24 @@ export function SubscriptionCard({ subscription, viewMode = 'grid', onEdit, onDe
         isTrialEndingSoon && "animate-pulse-glow"
       )}
     >
-      <div className="flex items-start gap-4">
-        {/* Logo（有则显示图片，否则显示订阅名称前 2 个字符作为占位） */}
-        <div className={cn(
-          "subscription-logo-tile flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-lg border text-lg font-bold",
-        )} style={logoTileStyle}>
-          {subscription.logo && !logoLoadFailed ? (
-            <AuthorizedImage
-              src={subscription.logo}
-              alt={subscription.name}
-              className="subscription-logo-image h-full w-full object-contain p-1"
-              onError={() => setLogoLoadFailed(true)}
-            />
-          ) : (
-            <span className="subscription-logo-fallback">{subscription.name.slice(0, 2).toUpperCase()}</span>
-          )}
-        </div>
+      <div className="relative z-10 flex items-start gap-4">
+        <SubscriptionLogo name={subscription.name} logo={subscription.logo} fallbackColor={categoryColor} size="md" />
 
-        {/* 内容 */}
         <div className="min-w-0 flex-1 grid gap-3">
           <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-start gap-x-3 gap-y-2">
-            <TruncatedTooltipText
-              as="h3"
-              text={subscription.name}
-              className="min-w-0 font-semibold text-foreground"
-            />
+            <div className="flex min-w-0 items-center gap-1.5">
+              {subscription.pinned ? (
+                <>
+                  <Pin className="h-3.5 w-3.5 shrink-0 text-primary" aria-hidden="true" data-testid="subscription-pinned-title-icon" />
+                  <span className="sr-only">{t("subscription.pin")}</span>
+                </>
+              ) : null}
+              <TruncatedTooltipText
+                as="h3"
+                text={subscription.name}
+                className="min-w-0 font-semibold text-foreground"
+              />
+            </div>
 
             <div className="shrink-0 text-right">
               <p className="whitespace-nowrap text-xl font-bold text-foreground">
@@ -180,14 +180,31 @@ export function SubscriptionCard({ subscription, viewMode = 'grid', onEdit, onDe
                   <MoreHorizontal className="h-4 w-4" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={() => onEdit?.(subscription.id)}>
+              <DropdownMenuContent align="end" className="w-40">
+                <DropdownMenuItem className="gap-2.5 px-2.5 py-2 text-sm" onClick={() => onEdit?.(subscription.id)}>
+                  <Pencil className="h-4 w-4 shrink-0 text-muted-foreground" />
                   {t("common.edit")}
                 </DropdownMenuItem>
+                <DropdownMenuItem className="gap-2.5 px-2.5 py-2 text-sm" onClick={() => setShowAddToCalendarDialog(true)}>
+                  <CalendarPlus className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  {t("subscription.addToCalendar")}
+                </DropdownMenuItem>
+                {onTogglePinned ? (
+                  <DropdownMenuItem className="gap-2.5 px-2.5 py-2 text-sm" onClick={() => onTogglePinned(subscription.id)}>
+                    {subscription.pinned ? (
+                      <PinOff className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    ) : (
+                      <Pin className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    )}
+                    {subscription.pinned ? t("subscription.unpin") : t("subscription.pin")}
+                  </DropdownMenuItem>
+                ) : null}
+                <DropdownMenuSeparator />
                 <DropdownMenuItem
                   onClick={() => setShowDeleteDialog(true)}
-                  className="text-destructive"
+                  className="gap-2.5 px-2.5 py-2 text-sm text-destructive focus:bg-destructive/10 focus:text-destructive"
                 >
+                  <Trash2 className="h-4 w-4 shrink-0" />
                   {t("common.delete")}
                 </DropdownMenuItem>
               </DropdownMenuContent>
@@ -215,9 +232,7 @@ export function SubscriptionCard({ subscription, viewMode = 'grid', onEdit, onDe
             </div>
           </div>
 
-          {/* 日期信息 */}
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-            {/* 开始日期 */}
             <div className="flex items-center gap-1.5 text-muted-foreground">
               <CalendarClock className="h-3.5 w-3.5" />
               <span className="text-xs">
@@ -225,7 +240,6 @@ export function SubscriptionCard({ subscription, viewMode = 'grid', onEdit, onDe
               </span>
             </div>
             
-            {/* 下次账单信息 */}
             <div className={cn(
               "flex items-center gap-1.5",
               isExpired ? "text-destructive" : isRenewingSoon ? "text-warning" : "text-muted-foreground"
@@ -246,11 +260,8 @@ export function SubscriptionCard({ subscription, viewMode = 'grid', onEdit, onDe
               </span>
             </div>
 
-            {/* 带图标的付款方式 */}
             {subscription.paymentMethod && (() => {
-              const paymentConfig = config.paymentMethods.find(
-                m => m.value === subscription.paymentMethod
-              );
+              const paymentConfig = paymentMethodByValue.get(subscription.paymentMethod);
               return (
                 <div className="flex items-center gap-1.5 text-muted-foreground">
                   {paymentConfig?.icon ? (
@@ -263,7 +274,6 @@ export function SubscriptionCard({ subscription, viewMode = 'grid', onEdit, onDe
               );
             })()}
 
-            {/* 提醒设置，仅列表模式展示 */}
             {viewMode === 'list' && !isOneTime && (
               <div className="flex items-center gap-1.5 text-muted-foreground">
                 <Bell className="h-3.5 w-3.5" />
@@ -276,7 +286,6 @@ export function SubscriptionCard({ subscription, viewMode = 'grid', onEdit, onDe
             )}
           </div>
 
-          {/* 试用提醒 */}
           {isTrialEndingSoon && subscription.trialEndDate && (
             <div className="flex items-center gap-2 rounded-md bg-warning/10 px-3 py-2 text-sm text-warning">
               <span className="font-medium">
@@ -304,6 +313,13 @@ export function SubscriptionCard({ subscription, viewMode = 'grid', onEdit, onDe
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
+    {showAddToCalendarDialog && (
+      <AddToCalendarDialog
+        open={showAddToCalendarDialog}
+        onOpenChange={setShowAddToCalendarDialog}
+        subscription={subscription}
+      />
+    )}
     </>
   );
 }

@@ -42,7 +42,7 @@ import { isEffectivelyActiveSubscription } from '@/modules/subscriptions/domain/
 interface SubscriptionCalendarProps {
   /** 订阅列表（前端 domain 类型）。 */
   subscriptions: Subscription[];
-  /** 点击“编辑”时回调（由上层页面打开编辑弹窗）。 */
+  /** 编辑动作交回上层 CRUD 控制器，日历只负责关闭详情并传出当前订阅快照。 */
   onEditSubscription?: (subscription: Subscription) => void;
 }
 

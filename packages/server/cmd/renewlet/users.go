@@ -32,7 +32,7 @@ var errSetupAlreadyInitialized = errors.New("SETUP_ALREADY_INITIALIZED")
 // 注意： 前端禁用按钮只是体验优化；所有管理员写操作都必须经过这里和后续防自锁校验。
 func requireAdmin(e *core.RequestEvent) error {
 	if e.Auth == nil || e.Auth.GetString("role") != "admin" || e.Auth.GetBool("banned") {
-		return e.ForbiddenError(tr(requestLocale(e.Request), "需要管理员权限", "Admin permission is required"), nil)
+		return e.ForbiddenError(serverText(requestLocale(e.Request), "auth.adminRequiredShort"), nil)
 	}
 	return e.Next()
 }
@@ -60,7 +60,6 @@ func createInitialAdmin(app core.App, name string, email string, password string
 	})
 }
 
-// createUser 创建应用用户并设置产品侧角色字段。
 func createUser(app core.App, name string, email string, password string, role string) (*core.Record, error) {
 	users, err := app.FindCollectionByNameOrId("users")
 	if err != nil {
@@ -114,7 +113,8 @@ func createInitialSuperuserIfMissing(app core.App, email string, password string
 	return app.Save(superuser)
 }
 
-// hasNonInstallerSuperuser 判断是否已有真实 superuser。
+// hasNonInstallerSuperuser 判断是否已有用户掌控的 PocketBase superuser。
+// 默认 installer 邮箱只是 PocketBase 初始化哨兵，不能阻止 Renewlet 创建真正可登录的管理入口。
 func hasNonInstallerSuperuser(app core.App) (bool, error) {
 	total, err := app.CountRecords(core.CollectionNameSuperusers, dbx.Not(dbx.HashExp{
 		"email": core.DefaultInstallerEmail,
@@ -125,13 +125,13 @@ func hasNonInstallerSuperuser(app core.App) (bool, error) {
 	return total > 0, nil
 }
 
-// hasEnabledAdmin 判断系统是否已经初始化。
+// hasEnabledAdmin 判断产品侧是否已有可用管理员，供 setup route 做最终裁决。
 func hasEnabledAdmin(app core.App) bool {
 	users, err := app.FindAllRecords("users", dbx.HashExp{"role": "admin", "banned": false})
 	return err == nil && len(users) > 0
 }
 
-// enabledAdminCount 返回未封禁管理员数量。
+// enabledAdminCount 返回仍可登录的管理员数量，用于防止自锁。
 func enabledAdminCount(app core.App) int {
 	users, err := app.FindAllRecords("users", dbx.HashExp{"role": "admin", "banned": false})
 	if err != nil {
@@ -140,7 +140,8 @@ func enabledAdminCount(app core.App) int {
 	return len(users)
 }
 
-// preventLastAdminMutation 阻止管理员更新导致系统无可用管理员。
+// preventLastAdminMutation 拦截降级、禁用当前账号或最后管理员的写入。
+// 该函数同时保护 API、SDK 和管理后台触发的 record save，不能只依赖 route 层。
 func preventLastAdminMutation(app core.App, current *core.Record, target *core.Record) error {
 	if current != nil && current.Id == target.Id && (target.GetString("role") != "admin" || target.GetBool("banned")) {
 		return errors.New("CURRENT_ACCOUNT_PROTECTED")
@@ -153,7 +154,8 @@ func preventLastAdminMutation(app core.App, current *core.Record, target *core.R
 	return nil
 }
 
-// preventUserDelete 阻止删除当前账号或最后一个可用管理员。
+// preventUserDelete 拦截删除当前账号或最后管理员。
+// 删除会连带清理用户数据，因此必须在真正执行删除前做后端裁决。
 func preventUserDelete(app core.App, current *core.Record, target *core.Record) error {
 	if current != nil && current.Id == target.Id {
 		return errors.New("CURRENT_ACCOUNT_DELETE_PROTECTED")
@@ -164,18 +166,17 @@ func preventUserDelete(app core.App, current *core.Record, target *core.Record) 
 	return nil
 }
 
-// localizeAdminMutationError 将管理员保护错误转换为本地化文案。
 func localizeAdminMutationError(locale appLocale, err error) string {
 	if err == nil {
 		return ""
 	}
 	switch err.Error() {
 	case "CURRENT_ACCOUNT_PROTECTED":
-		return tr(locale, "不能禁用或降级当前登录账号", "You cannot disable or demote the current signed-in account")
+		return serverText(locale, "auth.cannotDisableOrDemoteCurrentSignedIn")
 	case "LAST_ADMIN_PROTECTED":
-		return tr(locale, "至少需要保留一个启用的管理员", "At least one enabled admin must remain")
+		return serverText(locale, "auth.atLeastOneEnabledAdminShort")
 	case "CURRENT_ACCOUNT_DELETE_PROTECTED":
-		return tr(locale, "不能删除当前登录账号", "You cannot delete the current signed-in account")
+		return serverText(locale, "auth.cannotDeleteCurrentSignedIn")
 	default:
 		return err.Error()
 	}

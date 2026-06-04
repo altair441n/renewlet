@@ -6,6 +6,7 @@ type LogoCandidateFixture = {
   source: "builtIn" | "favicon";
   provider: string;
   label: string;
+  variant: string | null;
   url: string;
   confidence: "exact" | "strong" | "medium" | "weak";
   autoAssignable: boolean;
@@ -25,6 +26,7 @@ function makeLogoCandidate(index: number): LogoCandidateFixture {
     source,
     provider: source === "builtIn" ? "e2e-built-in" : "e2e-favicon",
     label: `Linear ${index + 1}`,
+    variant: source === "builtIn" ? "default" : null,
     url: `data:image/svg+xml,${svg}`,
     confidence: source === "builtIn" ? "strong" : "weak",
     autoAssignable: false,
@@ -40,6 +42,7 @@ export async function installLogoCandidateRoute(page: Page, count = 40) {
     const itemId = body?.items?.[0]?.id ?? "search";
     const builtIn = candidates.filter((candidate) => candidate.source === "builtIn");
     const favicon = candidates.filter((candidate) => candidate.source === "favicon");
+    // 固定候选数量和 data URL 图片，专门测试 Logo 选择器滚动/虚拟布局，不依赖外部 provider 或网络图片。
     await route.fulfill({
       contentType: "application/json",
       body: JSON.stringify({

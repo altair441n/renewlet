@@ -1,3 +1,4 @@
+// Calendar primitive 测试保护移动端 sheet、caption/nav 和 date-only 选择语义，避免 DayPicker 升级破坏表单日期。
 import { render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { Calendar } from "@/components/ui/calendar";

@@ -14,6 +14,7 @@ import {
 } from "./built-in-icons";
 import { mediaResolverConfig, type MediaResolverConfig } from "./media-resolver-config";
 
+/** 离线索引中的内置图标条目；生成脚本负责把上游 registry 收敛成这个窄形状。 */
 export interface BuiltInIcon {
   provider: BuiltInIconProvider;
   slug: string;
@@ -31,6 +32,7 @@ export interface BuiltInIcon {
   guidelines?: string;
 }
 
+/** provider 的实际可渲染变体；path 会与 provider CDN base 拼成候选 URL。 */
 export interface BuiltInIconVariant {
   name: string;
   path: string;
@@ -70,6 +72,12 @@ export interface MediaResolver {
   searchModifierSuffixWords: ReadonlySet<string>;
 }
 
+/**
+ * 创建内置媒体解析器。
+ *
+ * 索引、provider 排序、首选变体和降词规则都来自 shared config；前端、Go embedded static
+ * 和 Cloudflare Worker 必须使用同一套 resolver 规则。
+ */
 export function createMediaResolver(
   icons: readonly BuiltInIcon[],
   config: MediaResolverConfig = mediaResolverConfig,
@@ -111,6 +119,11 @@ export function createMediaResolver(
   return resolver;
 }
 
+/**
+ * 解析单个 Logo/Icon 候选请求项。
+ *
+ * auto 模式只返回高置信内置候选；search 模式会保留 favicon 备用预算，避免弱候选被多 provider 变体挤出。
+ */
 export function resolveMediaCandidateItem(
   resolver: MediaResolver,
   kind: MediaCandidateKind,
@@ -148,10 +161,12 @@ export function resolveMediaCandidateItem(
   return { id: item.id, autoCandidate, candidates };
 }
 
+/** 将用户传入 limit 收敛到配置边界，避免候选搜索成为无界 CPU/响应体开销。 */
 export function clampMediaCandidateLimit(config: MediaResolverConfig, value: number | undefined): number {
   return clamp(value ?? config.limits.defaultCandidates, 1, config.limits.maxCandidates);
 }
 
+/** 候选优先级固定为内置图标优先，再落到 favicon 备用。 */
 export function bestMediaCandidate(group: MediaCandidateGroup): MediaCandidate | null {
   return group.builtIn[0] ?? group.favicon[0] ?? null;
 }
@@ -244,6 +259,7 @@ export function generateFaviconCandidates(
   return candidates.slice(0, limit);
 }
 
+/** 搜索 term 归一化要同时服务拉丁字符、中文和 provider slug，不绑定 UI locale。 */
 export function normalizeMediaTerm(value: string): string {
   return value
     .normalize("NFKD")

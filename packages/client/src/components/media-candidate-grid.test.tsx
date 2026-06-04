@@ -1,3 +1,4 @@
+// 媒体候选网格测试保护分组、置信度和键盘选择体验，避免 Logo/Icon resolver 结果无法稳定选择。
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";

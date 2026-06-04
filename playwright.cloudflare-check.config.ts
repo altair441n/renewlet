@@ -23,6 +23,7 @@ if (!hasCredentials) {
 export default defineConfig({
   testDir: "./e2e/cloudflare-check",
   outputDir: "test-results/cloudflare-check",
+  // 线上巡检串行执行，避免同一个测试账号同时改设置/订阅，导致结果被另一个项目污染。
   fullyParallel: false,
   workers: 1,
   retries: env.CI ? 1 : 0,
@@ -58,6 +59,7 @@ export default defineConfig({
             testMatch: "**/desktop-site.spec.ts",
             use: {
               ...devices["Desktop Chrome"],
+              // 登录态来自真实线上 /login；业务项目不重复登录，专注验证页面和 API 稳定性。
               storageState: cloudflareAuthState,
             },
           },
@@ -67,6 +69,7 @@ export default defineConfig({
             testMatch: "**/mobile-site.spec.ts",
             use: {
               ...devices["Pixel 5"],
+              // 移动巡检复用同一 session，专门暴露 viewport/sheet/layout 问题，而不是认证噪音。
               storageState: cloudflareAuthState,
             },
           },

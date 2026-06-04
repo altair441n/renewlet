@@ -73,6 +73,7 @@ const protectedPages: Array<{ path: string; label: string; assertReady: (page: P
 test("protected desktop pages render without API or session bursts", async ({ page }, testInfo) => {
   const monitor = createNetworkMonitor(page);
   try {
+    // 这组巡检只读访问所有核心页；任何写 API 都应被 network monitor 当成线上副作用拦下。
     for (const target of protectedPages) {
       await page.goto(target.path);
       await target.assertReady(page);
@@ -132,6 +133,7 @@ test("temporary subscription write-edit-read-delete is consistent across pages",
   const tagName = createTempTagName(testInfo);
 
   try {
+    // 写删巡检使用 e2e-prod 前缀并在 finally 清理；只读生产烟测必须通过 write scope 跳过这里。
     await page.goto("/subscriptions");
     await expect(page.getByRole("heading", { name: "订阅列表" })).toBeVisible();
     await cleanupTemporarySubscriptions(page, "e2e-prod-");

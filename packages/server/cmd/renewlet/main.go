@@ -9,7 +9,6 @@ package main
 //
 // 注意： 这里的 route 是前端 API schema 的后端真相来源；新增字段时必须同步 Zod schema 和 route 测试。
 import (
-	"errors"
 	"fmt"
 	"io/fs"
 	"log"
@@ -34,6 +33,10 @@ func init() {
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
 		runHealthcheck()
+		return
+	}
+	if len(os.Args) > 1 && (os.Args[1] == "version" || os.Args[1] == "--version") {
+		fmt.Println(Version)
 		return
 	}
 
@@ -61,12 +64,7 @@ func main() {
 		return ensureSchema(e.App)
 	})
 
-	app.OnRecordAuthWithPasswordRequest("users").BindFunc(func(e *core.RecordAuthWithPasswordRequestEvent) error {
-		if e.Record != nil && e.Record.GetBool("banned") {
-			return errors.New(localizedDisabledBanReason(requestLocale(e.Request)))
-		}
-		return e.Next()
-	})
+	registerAuthHooks(app)
 
 	app.OnServe().Bind(&hook.Handler[*core.ServeEvent]{
 		Func: func(e *core.ServeEvent) error {
@@ -91,10 +89,35 @@ func main() {
 	}
 }
 
+func registerAuthHooks(app core.App) {
+	rejectBannedAuthRecord := func(request *http.Request, collection *core.Collection, record *core.Record) error {
+		if collection != nil && collection.Name == "users" && record != nil && record.GetBool("banned") {
+			return apis.NewUnauthorizedError(localizedDisabledBanReason(requestLocale(request)), nil)
+		}
+		return nil
+	}
+	app.OnRecordAuthWithPasswordRequest().BindFunc(func(e *core.RecordAuthWithPasswordRequestEvent) error {
+		if err := rejectBannedAuthRecord(e.Request, e.Collection, e.Record); err != nil {
+			return err
+		}
+		return e.Next()
+	})
+	app.OnRecordAuthRefreshRequest().BindFunc(func(e *core.RecordAuthRefreshRequestEvent) error {
+		if err := rejectBannedAuthRecord(e.Request, e.Collection, e.Record); err != nil {
+			return err
+		}
+		return e.Next()
+	})
+	app.OnRecordAuthRequest().BindFunc(func(e *core.RecordAuthRequestEvent) error {
+		if err := rejectBannedAuthRecord(e.Request, e.Collection, e.Record); err != nil {
+			return err
+		}
+		return e.Next()
+	})
+}
+
 func disablePocketBaseInstaller(e *core.ServeEvent) {
-	// Renewlet owns first-run setup at /setup. PocketBase's default installer opens
-	// /_/#/pbinstall in a separate browser on empty data dirs; re-enabling it would
-	// split the first-run state machine and make headed E2E show the wrong UI.
+	// 首装状态机只属于 Renewlet /setup；PocketBase installer 会另开 /_/#/pbinstall，导致 E2E 和用户看到两套入口。
 	e.InstallerFunc = nil
 }
 

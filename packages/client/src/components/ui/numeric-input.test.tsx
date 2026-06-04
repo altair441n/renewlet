@@ -1,3 +1,4 @@
+// NumericInput 测试保护金额输入的格式化和原始字符串回传，避免浏览器宽松数字解析污染表单校验。
 import { useState } from "react";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";

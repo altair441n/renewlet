@@ -14,6 +14,7 @@ let currentLocale: Locale = getInitialLocale();
 pb.lang = currentLocale;
 pb.beforeSend = (url, options) => {
   const headers = new Headers(options.headers);
+  // 同时发标准头和产品头：标准头服务 Go/Worker locale 协商，产品头给代理/CDN 改写 Accept-Language 时兜底。
   headers.set("Accept-Language", currentLocale);
   headers.set("X-Renewlet-Locale", currentLocale);
   return { url, options: { ...options, headers: Object.fromEntries(headers.entries()) } };

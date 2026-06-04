@@ -1,3 +1,4 @@
+// 订阅弹窗测试覆盖新增/编辑状态机、默认货币同步和 date-only 自动推算边界。
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
@@ -212,6 +213,7 @@ describe("SubscriptionDialog", () => {
       customDays: undefined,
       category: "productivity",
       status: "active",
+      pinned: false,
       paymentMethod: "alipay",
       startDate: assertDateOnly("2026-04-16"),
       nextBillingDate: assertDateOnly("2026-05-16"),
@@ -447,6 +449,7 @@ describe("SubscriptionDialog", () => {
       customDays: undefined,
       category: "productivity",
       status: "active",
+      pinned: false,
       paymentMethod: "alipay",
       startDate: assertDateOnly("2026-05-14"),
       nextBillingDate: assertDateOnly("2026-05-17"),

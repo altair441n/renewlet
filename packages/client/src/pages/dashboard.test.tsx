@@ -1,6 +1,8 @@
+// Dashboard 页面测试保护首页 hook 装配和统计入口，避免页面层绕过 domain 模型直接计算金额。
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { assertDateOnly } from "@/lib/time/date-only";
+import { DEFAULT_CUSTOM_CONFIG } from "@/types/config";
 import type { FixedCycleSubscription, Subscription } from "@/types/subscription";
 import Dashboard from "./dashboard";
 
@@ -26,18 +28,33 @@ vi.mock("@/components/router-link", () => ({
 }));
 
 vi.mock("@/components/loading-skeleton", () => ({
-  DashboardSkeleton: () => <div data-testid="dashboard-skeleton" />,
+  DashboardPageSkeleton: () => <div data-testid="dashboard-skeleton" />,
 }));
 
 vi.mock("@/components/subscription-card", () => ({
-  SubscriptionCard: ({ subscription }: { subscription: Subscription }) => (
-    <article data-testid="subscription-card">{subscription.name}</article>
+  SubscriptionCard: ({ subscription, inheritedReminderDays }: { subscription: Subscription; inheritedReminderDays: number }) => (
+    <article data-testid="subscription-card">
+      {subscription.name}
+      <span data-testid="subscription-card-reminder">{inheritedReminderDays}</span>
+    </article>
   ),
 }));
 
 vi.mock("@/components/spending-chart", () => ({
-  SpendingChart: ({ subscriptions }: { subscriptions: Subscription[] }) => (
-    <div data-testid="spending-chart">{subscriptions.length}</div>
+  SpendingChart: ({
+    subscriptions,
+    defaultCurrency,
+    timeZone,
+    exchangeRateProvider,
+  }: {
+    subscriptions: Subscription[];
+    defaultCurrency: string;
+    timeZone: string;
+    exchangeRateProvider: string | undefined;
+  }) => (
+    <div data-testid="spending-chart">
+      {subscriptions.length}:{defaultCurrency}:{timeZone}:{exchangeRateProvider}
+    </div>
   ),
 }));
 
@@ -70,6 +87,12 @@ vi.mock("@/hooks/use-subscriptions", () => ({
   useSubscriptions: mocks.useSubscriptions,
 }));
 
+vi.mock("@/contexts/CustomConfigContext", () => ({
+  useCustomConfig: () => ({
+    config: DEFAULT_CUSTOM_CONFIG,
+  }),
+}));
+
 vi.mock("@/modules/subscriptions/application/use-subscription-crud", () => ({
   useSubscriptionCrud: () => ({
     editingSubscription: undefined,
@@ -93,6 +116,7 @@ function subscription(overrides: Partial<FixedCycleSubscription> = {}): FixedCyc
     customDays: undefined,
     category: "productivity",
     status: "active",
+    pinned: false,
     paymentMethod: undefined,
     startDate: assertDateOnly("2026-04-18"),
     nextBillingDate: assertDateOnly("2026-05-18"),
@@ -118,6 +142,7 @@ function mockResolvedDashboardData() {
     data: {
       defaultCurrency: "CNY",
       exchangeRateProvider: "exchange-api",
+      notificationReminderDays: 5,
       timezone: "Asia/Shanghai",
     },
     isPending: false,
@@ -138,6 +163,8 @@ describe("Dashboard page loading state", () => {
     expect(screen.queryByTestId("dashboard-skeleton")).not.toBeInTheDocument();
     expect(screen.getByText("近期订阅")).toBeInTheDocument();
     expect(screen.getByText("Codex Pro")).toBeInTheDocument();
+    expect(screen.getByTestId("subscription-card-reminder")).toHaveTextContent("5");
+    expect(screen.getByTestId("spending-chart")).toHaveTextContent("1:CNY:Asia/Shanghai:exchange-api");
     expect(screen.getByText("汇率加载中...")).toBeInTheDocument();
   });
 
@@ -155,6 +182,7 @@ describe("Dashboard page loading state", () => {
         : {
             defaultCurrency: "CNY",
             exchangeRateProvider: "exchange-api",
+            notificationReminderDays: 5,
             timezone: "Asia/Shanghai",
           },
       isPending: state.settingsPending,

@@ -1,3 +1,4 @@
+// 管理员用户管理文案集中在 admin domain，避免权限/防自锁提示散落到页面组件。
 import { msg } from "@lingui/core/macro";
 
 export const messages = [

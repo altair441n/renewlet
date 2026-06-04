@@ -1,3 +1,4 @@
+// upload-image 测试保护 dataURL/multipart 上传契约，避免裁剪链路把非法 MIME 或超大图片送到服务端。
 import { describe, expect, it } from "vitest";
 import { dataUrlToBlob, validateImageFileForUpload } from "./upload-image";
 

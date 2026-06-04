@@ -1,5 +1,7 @@
 package main
 
+// 本文件测试通知历史响应契约，尤其是空数组、legacy null 归一和 effectiveReminderDays 展示字段。
+
 import (
 	"encoding/json"
 	"net/http"

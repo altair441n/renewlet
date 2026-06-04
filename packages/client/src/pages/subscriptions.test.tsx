@@ -16,10 +16,12 @@ type SubscriptionOverrides = Partial<Omit<Subscription, "billingCycle" | "custom
 
 const mocks = vi.hoisted(() => ({
   useSubscriptions: vi.fn(),
+  useInfiniteSubscriptions: vi.fn(),
   useSettings: vi.fn(),
   handleAddSubscription: vi.fn(),
   handleDeleteSubscription: vi.fn(),
   handleEditSubscription: vi.fn(),
+  handleTogglePinnedSubscription: vi.fn(),
   handleSaveSubscription: vi.fn(),
   handleEditDialogOpenChange: vi.fn(),
   exportToJSON: vi.fn(),
@@ -29,6 +31,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/hooks/use-subscriptions", () => ({
   useSubscriptions: mocks.useSubscriptions,
+  useInfiniteSubscriptions: mocks.useInfiniteSubscriptions,
 }));
 
 vi.mock("@/hooks/use-settings", () => ({
@@ -88,6 +91,7 @@ vi.mock("@/modules/subscriptions/application/use-subscription-crud", () => ({
     handleAddSubscription: mocks.handleAddSubscription,
     handleDeleteSubscription: mocks.handleDeleteSubscription,
     handleEditSubscription: mocks.handleEditSubscription,
+    handleTogglePinnedSubscription: mocks.handleTogglePinnedSubscription,
     handleSaveSubscription: mocks.handleSaveSubscription,
     handleEditDialogOpenChange: mocks.handleEditDialogOpenChange,
   }),
@@ -110,8 +114,22 @@ vi.mock("@/components/header", () => ({
 }));
 
 vi.mock("@/components/subscription-card", () => ({
-  SubscriptionCard: ({ subscription }: { subscription: Subscription }) => (
-    <article data-testid="subscription-card">{subscription.name}</article>
+  SubscriptionCard: ({
+    subscription,
+    inheritedReminderDays,
+    onTogglePinned,
+  }: {
+    subscription: Subscription;
+    inheritedReminderDays: number;
+    onTogglePinned?: (id: string) => void;
+  }) => (
+    <article data-testid="subscription-card">
+      {subscription.name}
+      <span data-testid="subscription-card-reminder">{inheritedReminderDays}</span>
+      <button type="button" onClick={() => onTogglePinned?.(subscription.id)}>
+        置顶 {subscription.name}
+      </button>
+    </article>
   ),
 }));
 
@@ -144,6 +162,7 @@ function subscription(overrides: SubscriptionOverrides = {}): Subscription {
     repeatReminderEnabled: false,
     repeatReminderInterval: "1h",
     repeatReminderWindow: "72h",
+    pinned: false,
   };
 
   if (overrides.billingCycle === "custom") {
@@ -174,7 +193,7 @@ function renderSubscriptionsPage() {
 }
 
 function visibleSubscriptionNames() {
-  return screen.getAllByTestId("subscription-card").map((card) => card.textContent);
+  return screen.getAllByTestId("subscription-card").map((card) => card.firstChild?.textContent ?? "");
 }
 
 function mockMobileTagFilterMatch(isMobile: boolean, width = isMobile ? 390 : 1280) {
@@ -224,16 +243,31 @@ describe("Subscriptions page sorting", () => {
       data: {
         timezone: "Asia/Shanghai",
         defaultCurrency: "CNY",
+        notificationReminderDays: 5,
       },
     });
-    mocks.useSubscriptions.mockReturnValue({
-      data: [
+    mocks.useInfiniteSubscriptions.mockReturnValue({
+      subscriptions: [
         subscription({ id: "annual-usd", name: "Annual USD", price: 120, currency: "USD", billingCycle: "annual" }),
         subscription({ id: "monthly-cny", name: "Monthly CNY", price: 80, currency: "CNY", billingCycle: "monthly" }),
         subscription({ id: "quarterly-cny", name: "Quarterly CNY", price: 180, currency: "CNY", billingCycle: "quarterly" }),
       ],
       isPending: false,
     });
+  });
+
+  it("renders a page-isomorphic skeleton while the first subscription page is pending", () => {
+    mocks.useInfiniteSubscriptions.mockReturnValue({
+      subscriptions: [],
+      isPending: true,
+    });
+
+    renderSubscriptionsPage();
+
+    expect(screen.getByTestId("subscriptions-skeleton")).toHaveAttribute("aria-hidden", "true");
+    expect(screen.getByTestId("subscriptions-skeleton-list")).toBeInTheDocument();
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+    expect(screen.queryByRole("link")).not.toBeInTheDocument();
   });
 
   it("sorts visible cards and clears sorting without marking the count as filtered", async () => {
@@ -256,6 +290,25 @@ describe("Subscriptions page sorting", () => {
       expect(visibleSubscriptionNames()).toEqual(["Annual USD", "Monthly CNY", "Quarterly CNY"]);
     });
     expect(screen.getByRole("combobox", { name: "排序" })).toHaveTextContent("默认顺序");
+  });
+
+  it("keeps pinned subscriptions ahead and wires the pin action", async () => {
+    const user = userEvent.setup();
+    mocks.useInfiniteSubscriptions.mockReturnValue({
+      subscriptions: [
+        subscription({ id: "regular", name: "Regular Service", price: 999 }),
+        subscription({ id: "pinned", name: "Pinned Service", price: 1, pinned: true }),
+      ],
+      isPending: false,
+    });
+
+    renderSubscriptionsPage();
+
+    expect(visibleSubscriptionNames()).toEqual(["Pinned Service", "Regular Service"]);
+
+    await user.click(screen.getByRole("button", { name: "置顶 Regular Service" }));
+
+    expect(mocks.handleTogglePinnedSubscription).toHaveBeenCalledWith("regular");
   });
 
   it("shows the back-to-top float button when the app root is scrolled", async () => {
@@ -311,8 +364,8 @@ describe("Subscriptions page sorting", () => {
 
   it("filters by expired using the effective status of legacy overdue subscriptions", async () => {
     const user = userEvent.setup();
-    mocks.useSubscriptions.mockReturnValue({
-      data: [
+    mocks.useInfiniteSubscriptions.mockReturnValue({
+      subscriptions: [
         subscription({ id: "legacy-overdue", name: "Legacy Overdue", status: "active", nextBillingDate: assertDateOnly("2000-05-15") }),
         subscription({ id: "active-future", name: "Active Future", status: "active", nextBillingDate: assertDateOnly("2099-05-20") }),
       ],
@@ -350,10 +403,11 @@ describe("Subscriptions page desktop tag filters", () => {
       data: {
         timezone: "Asia/Shanghai",
         defaultCurrency: "CNY",
+        notificationReminderDays: 5,
       },
     });
-    mocks.useSubscriptions.mockReturnValue({
-      data: [
+    mocks.useInfiniteSubscriptions.mockReturnValue({
+      subscriptions: [
         subscription({ id: "cloud", name: "Tagged Cloud", tags: ["工作", "云服务", "Security"] }),
         subscription({ id: "docs", name: "Docs Notes", tags: ["Docs", "Planning"] }),
         subscription({ id: "design", name: "Design Suite", tags: ["Design"] }),
@@ -428,10 +482,11 @@ describe("Subscriptions page mobile tag filters", () => {
       data: {
         timezone: "Asia/Shanghai",
         defaultCurrency: "CNY",
+        notificationReminderDays: 5,
       },
     });
-    mocks.useSubscriptions.mockReturnValue({
-      data: [
+    mocks.useInfiniteSubscriptions.mockReturnValue({
+      subscriptions: [
         subscription({ id: "cloud", name: "Tagged Cloud", tags: ["工作", "云服务", "Security"] }),
         subscription({ id: "docs", name: "Docs Notes", tags: ["Docs", "Planning"] }),
         subscription({ id: "design", name: "Design Suite", tags: ["Design"] }),
@@ -524,15 +579,16 @@ describe("Subscriptions page virtualization", () => {
       data: {
         timezone: "Asia/Shanghai",
         defaultCurrency: "CNY",
+        notificationReminderDays: 5,
       },
     });
-    mocks.useSubscriptions.mockReturnValue({
-      data: manySubscriptions(90),
+    mocks.useInfiniteSubscriptions.mockReturnValue({
+      subscriptions: manySubscriptions(90),
       isPending: false,
     });
   });
 
-  it("virtualizes large subscription lists while preserving sorting and filtering", async () => {
+  it("uses one virtualized list model while preserving sorting and filtering", async () => {
     const user = userEvent.setup();
     renderSubscriptionsPage();
 
@@ -542,6 +598,7 @@ describe("Subscriptions page virtualization", () => {
     });
     expect(screen.getAllByTestId("subscription-card").length).toBeLessThan(90);
     expect(visibleSubscriptionNames()[0]).toBe("Service 000");
+    expect(screen.getAllByTestId("subscription-card-reminder")[0]).toHaveTextContent("5");
 
     await user.click(screen.getByRole("combobox", { name: "排序" }));
     await user.click(await screen.findByRole("option", { name: "名称 Z-A" }));
@@ -553,8 +610,68 @@ describe("Subscriptions page virtualization", () => {
     await user.type(screen.getByPlaceholderText("搜索订阅、标签或备注..."), "Service 042");
 
     await waitFor(() => {
-      expect(screen.queryByTestId("virtualized-subscription-list")).not.toBeInTheDocument();
       expect(visibleSubscriptionNames()).toEqual(["Service 042"]);
     });
+    expect(screen.getByTestId("virtualized-subscription-list")).toBeInTheDocument();
+  });
+
+  it("keeps the same virtualized list model when loading more subscriptions", async () => {
+    const user = userEvent.setup();
+    const firstPageSubscriptions = manySubscriptions(50);
+    const nextPageSubscriptions = manySubscriptions(100);
+    const fetchNextPage = vi.fn();
+    let queryState = {
+      subscriptions: firstPageSubscriptions,
+      isPending: false,
+      hasNextPage: true,
+      isFetchingNextPage: false,
+      fetchNextPage,
+    };
+    mocks.useInfiniteSubscriptions.mockImplementation(() => queryState);
+    const { rerender } = renderSubscriptionsPage();
+    const virtualizedList = screen.getByTestId("virtualized-subscription-list");
+    const loadMoreRow = screen.getByTestId("subscriptions-load-more-row");
+
+    expect(virtualizedList).toBeInTheDocument();
+    expect(loadMoreRow.className).toContain("[overflow-anchor:none]");
+    expect(screen.getAllByTestId("subscription-card").length).toBeLessThan(50);
+
+    await user.click(screen.getByRole("button", { name: "加载更多" }));
+    expect(fetchNextPage).toHaveBeenCalledTimes(1);
+
+    queryState = {
+      ...queryState,
+      subscriptions: nextPageSubscriptions,
+      isFetchingNextPage: false,
+    };
+    rerender(
+      <div id="root" style={{ height: 800, overflowY: "auto" }}>
+        <TooltipProvider delayDuration={0}>
+          <Subscriptions />
+        </TooltipProvider>
+      </div>,
+    );
+
+    expect(screen.getByTestId("virtualized-subscription-list")).toBe(virtualizedList);
+    expect(screen.getAllByTestId("subscription-card").length).toBeLessThan(100);
+  });
+
+  it("does not re-read settings when virtualized rows change on scroll", async () => {
+    renderSubscriptionsPage();
+    const root = document.getElementById("root");
+    if (!root) throw new Error("Expected #root test scroll container");
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId("subscription-card").length).toBeGreaterThan(0);
+    });
+    const settingsCallsAfterMount = mocks.useSettings.mock.calls.length;
+
+    root.scrollTop = 1200;
+    fireEvent.scroll(root);
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId("subscription-card").length).toBeGreaterThan(0);
+    });
+    expect(mocks.useSettings).toHaveBeenCalledTimes(settingsCallsAfterMount);
   });
 });

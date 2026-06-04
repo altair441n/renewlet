@@ -1,3 +1,4 @@
+// 桌面订阅 E2E 覆盖创建、筛选、编辑、Logo sheet 和持久化回读，是订阅主流程的跨组件回归基线。
 import { expect, test } from "@playwright/test";
 import {
   createSubscription,
@@ -146,7 +147,7 @@ test("desktop import Logo editor gives search candidates a real scroll viewport"
   await importDialog.getByRole("button", { name: "修改 Logo" }).first().click();
   const importLogoSheet = page.locator(".h5-import-logo-sheet");
   await expect(importLogoSheet).toBeVisible();
-  await expect(importLogoSheet.getByTitle("Linear 1").first()).toBeVisible({ timeout: 10_000 });
+  await expect(importLogoSheet.getByRole("button", { name: /Linear 1/ }).first()).toBeVisible({ timeout: 10_000 });
 
   const scroll = await captureLogoSheetScrollMetrics(importLogoSheet, "import-logo-search-results");
   expect(scroll.scrollHeight, JSON.stringify(scroll, null, 2)).toBeGreaterThan(scroll.clientHeight);

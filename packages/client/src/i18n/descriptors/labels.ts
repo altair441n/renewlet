@@ -1,3 +1,4 @@
+// labels domain 为内置分类/状态/周期等生成 LocalizedLabels，持久化数据仍保存稳定 value。
 import { msg } from "@lingui/core/macro";
 
 export const messages = [

@@ -1,3 +1,4 @@
+// 自定义配置文案覆盖用户可编辑分类/状态/支付/货币管理，和默认配置 labels 的来源保持分离。
 import { msg } from "@lingui/core/macro";
 
 export const messages = [

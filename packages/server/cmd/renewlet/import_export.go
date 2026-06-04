@@ -1,5 +1,14 @@
 package main
 
+// import_export.go 实现 Renewlet/Wallos 导入预览与执行。
+//
+// 架构位置：
+//   - 前端先在浏览器本地解析文件，再把标准 importPayload 交给这里做用户隔离、冲突预览和写库。
+//   - extra.import 是跨 Go/PocketBase、Cloudflare Worker 与前端 shared schema 的幂等键事实来源。
+//   - apply 会重新 preview 并在事务内写 subscriptions/settings/custom_configs，避免 UI 预览被篡改后直接落库。
+//
+// 注意： 预览上限服务于冲突分析，执行上限服务于真实写库成本；两者不要合并成一个魔法数字。
+
 import (
 	"database/sql"
 	"encoding/json"
@@ -13,6 +22,9 @@ import (
 )
 
 const maxImportJSONBodyBytes int64 = 50 << 20
+const maxImportPreviewSubscriptions = 5000
+const maxImportApplySubscriptions = 200
+const importExistingPageSize = 500
 const importWarningLowConfidenceKey = "IMPORT_WARNING_LOW_CONFIDENCE_KEY"
 const importWarningLowConfidenceNameMatched = "IMPORT_WARNING_LOW_CONFIDENCE_NAME_MATCHED"
 
@@ -44,6 +56,7 @@ type importSubscription struct {
 	CustomDays                   *int                   `json:"customDays,omitempty"`
 	Category                     string                 `json:"category"`
 	Status                       string                 `json:"status"`
+	Pinned                       bool                   `json:"pinned"`
 	PaymentMethod                *string                `json:"paymentMethod,omitempty"`
 	StartDate                    string                 `json:"startDate"`
 	NextBillingDate              string                 `json:"nextBillingDate"`
@@ -104,11 +117,11 @@ type importExistingMatches struct {
 }
 
 func (r *importPreviewRequest) Validate(locale appLocale) error {
-	return validateImportPayload(r.Payload, r.ConflictMode, r.SkipIndexes, locale)
+	return validateImportPayload(r.Payload, r.ConflictMode, r.SkipIndexes, maxImportPreviewSubscriptions, locale)
 }
 
 func (r *importApplyRequest) Validate(locale appLocale) error {
-	return validateImportPayload(r.Payload, r.ConflictMode, r.SkipIndexes, locale)
+	return validateImportPayload(r.Payload, r.ConflictMode, r.SkipIndexes, maxImportApplySubscriptions, locale)
 }
 
 func handleImportPreview(app core.App, e *core.RequestEvent) error {
@@ -116,11 +129,11 @@ func handleImportPreview(app core.App, e *core.RequestEvent) error {
 	// 导入 payload 不包含二进制资产，但 5000 条订阅和 extra 元数据会超过普通 API 的 1MiB 上限。
 	body, err := decodeStrictJSONWithLimit[importPreviewRequest](e.Request, locale, maxImportJSONBodyBytes)
 	if err != nil {
-		return e.BadRequestError(validationErrorMessage(locale, "请求体无效", "Invalid request body", err), err)
+		return e.BadRequestError(validationErrorMessage(locale, "common.invalidRequestBody", err), err)
 	}
 	response, err := previewImportPayload(app, e.Auth, body.Payload, body.ConflictMode, body.SkipIndexes)
 	if err != nil {
-		return e.BadRequestError(tr(locale, "导入内容无效", "Import payload is invalid"), err)
+		return e.BadRequestError(serverText(locale, "import.invalid"), err)
 	}
 	return e.JSON(http.StatusOK, response)
 }
@@ -130,29 +143,29 @@ func handleImportApply(app core.App, e *core.RequestEvent) error {
 	// apply 会重新预览再进事务，防止调用方篡改 preview 结果后直接写库。
 	body, err := decodeStrictJSONWithLimit[importApplyRequest](e.Request, locale, maxImportJSONBodyBytes)
 	if err != nil {
-		return e.BadRequestError(validationErrorMessage(locale, "请求体无效", "Invalid request body", err), err)
+		return e.BadRequestError(validationErrorMessage(locale, "common.invalidRequestBody", err), err)
 	}
 	preview, err := previewImportPayload(app, e.Auth, body.Payload, body.ConflictMode, body.SkipIndexes)
 	if err != nil {
-		return e.BadRequestError(tr(locale, "导入内容无效", "Import payload is invalid"), err)
+		return e.BadRequestError(serverText(locale, "import.invalid"), err)
 	}
 	if preview.Summary.Errors > 0 {
-		return e.BadRequestError(tr(locale, "导入内容存在错误", "Import payload contains errors"), preview)
+		return e.BadRequestError(serverText(locale, "import.payloadContainsErrors"), preview)
 	}
 	if err := applyImportPayload(app, e.Auth, body.Payload, body.ConflictMode, body.SkipIndexes); err != nil {
-		return e.BadRequestError(tr(locale, "导入失败", "Import failed"), err)
+		return e.BadRequestError(serverText(locale, "import.applyFailed"), err)
 	}
 	return e.JSON(http.StatusOK, importApplyResponse{OK: true, importPreviewResponse: preview})
 }
 
-func validateImportPayload(payload importPayload, conflictMode string, skipIndexes []int, _ appLocale) error {
+func validateImportPayload(payload importPayload, conflictMode string, skipIndexes []int, maxSubscriptions int, _ appLocale) error {
 	if conflictMode != "replace" && conflictMode != "skip" {
 		return errors.New("IMPORT_CONFLICT_MODE_INVALID")
 	}
 	if payload.Source != "renewlet" && payload.Source != "wallos" {
 		return errors.New("IMPORT_SOURCE_INVALID")
 	}
-	if len(payload.Subscriptions) > 5000 {
+	if len(payload.Subscriptions) > maxSubscriptions {
 		return errors.New("IMPORT_TOO_MANY_SUBSCRIPTIONS")
 	}
 	if _, err := importSkippedIndexSet(skipIndexes, len(payload.Subscriptions)); err != nil {
@@ -179,7 +192,7 @@ func validateImportPayload(payload importPayload, conflictMode string, skipIndex
 }
 
 func previewImportPayload(app core.App, user *core.Record, payload importPayload, conflictMode string, skipIndexes []int) (importPreviewResponse, error) {
-	rows, err := app.FindAllRecords("subscriptions", dbx.HashExp{"user": user.Id})
+	rows, err := listImportExistingSubscriptions(app, user.Id)
 	if err != nil {
 		return importPreviewResponse{}, err
 	}
@@ -217,6 +230,7 @@ func previewImportPayload(app core.App, user *core.Record, payload importPayload
 		}
 		keyString := importKeyString(key)
 		if seenPayloadKeys[keyString] {
+			// 单个导入文件里的重复幂等键必须失败；否则 replace 会把两条来源记录写到同一订阅。
 			item.Action = "error"
 			item.Errors = append(item.Errors, "IMPORT_SOURCE_ID_DUPLICATE")
 			items = append(items, item)
@@ -232,6 +246,7 @@ func previewImportPayload(app core.App, user *core.Record, payload importPayload
 		if existing, fallback := existingMatches.Resolve(key, subscription); existing != nil {
 			item.ExistingID = existing.Id
 			if fallback {
+				// Wallos display:* 只能按名称低置信桥接，给 warning 让用户确认，不把它伪装成精确命中。
 				item.Warnings = append(item.Warnings, importWarningLowConfidenceNameMatched)
 			}
 			if conflictMode == "replace" {
@@ -255,7 +270,7 @@ func previewImportPayload(app core.App, user *core.Record, payload importPayload
 func applyImportPayload(app core.App, user *core.Record, payload importPayload, conflictMode string, skipIndexes []int) error {
 	// 导入写入包在 PocketBase 事务内完成；任意订阅、settings 或 custom config 失败都不能留下半套迁移数据。
 	return app.RunInTransaction(func(txApp core.App) error {
-		rows, err := txApp.FindAllRecords("subscriptions", dbx.HashExp{"user": user.Id})
+		rows, err := listImportExistingSubscriptions(txApp, user.Id)
 		if err != nil {
 			return err
 		}
@@ -299,6 +314,20 @@ func applyImportPayload(app core.App, user *core.Record, payload importPayload, 
 	})
 }
 
+func listImportExistingSubscriptions(app core.App, userID string) ([]*core.Record, error) {
+	rows := []*core.Record{}
+	for offset := 0; ; offset += importExistingPageSize {
+		page, err := app.FindRecordsByFilter("subscriptions", "user = {:user}", "-created", importExistingPageSize, offset, dbx.Params{"user": userID})
+		if err != nil {
+			return nil, err
+		}
+		rows = append(rows, page...)
+		if len(page) < importExistingPageSize {
+			return rows, nil
+		}
+	}
+}
+
 func validateImportSubscription(app core.App, user *core.Record, subscription importSubscription) error {
 	collection, err := app.FindCollectionByNameOrId("subscriptions")
 	if err != nil {
@@ -330,6 +359,7 @@ func setImportSubscriptionRecord(record *core.Record, userID string, subscriptio
 	}
 	record.Set("category", subscription.Category)
 	record.Set("status", subscription.Status)
+	record.Set("pinned", subscription.Pinned)
 	record.Set("paymentMethod", optionalString(subscription.PaymentMethod))
 	record.Set("startDate", subscription.StartDate)
 	record.Set("nextBillingDate", subscription.NextBillingDate)
@@ -434,6 +464,7 @@ func (matches importExistingMatches) AddLowConfidence(row *core.Record) {
 		return
 	}
 	if matches.LowConfidenceByName[nameKey] != nil {
+		// 同名历史订阅一多，名称兜底就失去唯一性；后续必须走用户手动选择。
 		delete(matches.LowConfidenceByName, nameKey)
 		matches.LowConfidenceDuplicates[nameKey] = true
 		return

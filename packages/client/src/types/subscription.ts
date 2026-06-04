@@ -148,6 +148,8 @@ interface SubscriptionBase {
   category: Category;
   /** 状态。 */
   status: SubscriptionStatus;
+  /** 是否置顶显示；列表排序会先按置顶分组，再应用用户选择的排序条件。 */
+  pinned: boolean;
   /** 支付方式（可选）。 */
   paymentMethod: PaymentMethod | undefined;
   /** 下次扣费日期（用于提醒与日历）。 */
@@ -245,17 +247,13 @@ export interface AppSettings {
   /** 第三方 API 测试号码（部分渠道测试用）。 */
   testPhone: string;
   
-  // Telegram 渠道
+  // 以下渠道配置会被原样提交到后端/Worker 做真实发送；前端只负责表单形态，不在本地校验 token 可用性。
   /** Telegram Bot Token。 */
   telegramBotToken: string;
   /** Telegram Chat ID。 */
   telegramChatId: string;
-  
-  // Notifyx 渠道
   /** Notifyx API Key。 */
   notifyxApiKey: string;
-  
-  // Webhook 渠道
   /** Webhook URL。 */
   webhookUrl: string;
   /** Webhook 请求方法。 */
@@ -264,8 +262,6 @@ export interface AppSettings {
   webhookHeaders: string;
   /** Webhook Payload（模板字符串/JSON 字符串）。 */
   webhookPayload: string;
-  
-  // 企业微信渠道
   /** 企业微信机器人 Webhook URL。 */
   wechatWebhookUrl: string;
   /** 企业微信消息类型。 */
@@ -276,8 +272,6 @@ export interface AppSettings {
   wechatAtPhones: string;
   /** 企业微信是否 @ 全体。 */
   wechatAtAll: boolean;
-  
-  // 邮件渠道
   /** SMTP 服务器地址。 */
   smtpHost: string;
   /** SMTP 端口。 */
@@ -296,8 +290,6 @@ export interface AppSettings {
   notifyMultipleAddresses: boolean;
   /** 收件人邮箱。 */
   recipientEmail: string;
-  
-  // Bark 渠道
   /** Bark 服务器地址。 */
   barkServerUrl: string;
   /** Bark 设备 Key。 */

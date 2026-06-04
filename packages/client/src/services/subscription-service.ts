@@ -1,4 +1,5 @@
 import { apiFetch } from "@/lib/api-client";
+import { withPocketBaseAuthGuard } from "@/lib/auth-session";
 import { assertDateOnly } from "@/lib/time/date-only";
 import { getApiLocale } from "@/i18n/api-locale";
 import { translate } from "@/i18n/messages";
@@ -20,12 +21,26 @@ import {
   type SubscriptionDraft,
 } from "@/types/subscription";
 
+const SUBSCRIPTION_PAGE_SIZE = 50;
+const SUBSCRIPTION_AGGREGATE_LIMIT = 5000;
+
+export interface SubscriptionPage {
+  subscriptions: Subscription[];
+  nextCursor: string | null;
+  total?: number | undefined;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function optionalNonEmptyString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() !== "" ? value : undefined;
+}
+
+function normalizeSubscriptionPageLimit(value: number): number {
+  if (!Number.isFinite(value)) return SUBSCRIPTION_PAGE_SIZE;
+  return Math.max(1, Math.min(Math.trunc(value), 100));
 }
 
 function normalizeRepeatReminderInterval(value: unknown): RepeatReminderInterval {
@@ -54,6 +69,7 @@ function normalizeSubscriptionRecord(row: unknown): unknown {
     startDate: row["startDate"],
     nextBillingDate: row["nextBillingDate"],
     autoCalculateNextBillingDate: row["autoCalculateNextBillingDate"],
+    pinned: row["pinned"] === true,
     reminderDays: row["reminderDays"],
     repeatReminderEnabled: row["repeatReminderEnabled"] === true,
     repeatReminderInterval: normalizeRepeatReminderInterval(row["repeatReminderInterval"]),
@@ -70,10 +86,17 @@ function normalizeSubscriptionRecord(row: unknown): unknown {
   if (createdAt !== undefined) normalized["createdAt"] = createdAt;
   const updatedAt = optionalNonEmptyString(row["updatedAt"]) ?? optionalNonEmptyString(row["updated"]);
   if (updatedAt !== undefined) normalized["updatedAt"] = updatedAt;
+  if (isRecord(row["extra"])) normalized["extra"] = row["extra"];
 
   return normalized;
 }
 
+/**
+ * 将任一运行面返回的订阅记录收敛成前端 domain 对象。
+ *
+ * PocketBase 原生 record 与 Cloudflare API response 都必须先通过 shared schema；
+ * React 层只看到 `Subscription` union，避免表单和统计逻辑按运行面分叉。
+ */
 export function fromApiSubscription(row: ApiSubscription | RecordModel): Subscription {
   const parsedRow = apiSubscriptionSchema.parse(normalizeSubscriptionRecord(row));
   const base = {
@@ -88,6 +111,7 @@ export function fromApiSubscription(row: ApiSubscription | RecordModel): Subscri
     startDate: assertDateOnly(parsedRow.startDate),
     nextBillingDate: assertDateOnly(parsedRow.nextBillingDate),
     autoCalculateNextBillingDate: parsedRow.autoCalculateNextBillingDate,
+    pinned: parsedRow.pinned,
     trialEndDate: parsedRow.trialEndDate ? assertDateOnly(parsedRow.trialEndDate) : undefined,
     website: parsedRow.website,
     notes: parsedRow.notes,
@@ -105,6 +129,12 @@ export function fromApiSubscription(row: ApiSubscription | RecordModel): Subscri
   return { ...base, billingCycle: parsedRow.billingCycle, customDays: undefined };
 }
 
+/**
+ * 生成订阅写入 payload。
+ *
+ * `null` 表示清空可选字段，`undefined` 表示字段缺席；这里主动使用 null，
+ * 防止 PocketBase patch 和 Worker JSON merge 对可选字段产生不同语义。
+ */
 export function toSubscriptionWritePayload(sub: SubscriptionDraft | Subscription) {
   return {
     name: sub.name,
@@ -120,6 +150,7 @@ export function toSubscriptionWritePayload(sub: SubscriptionDraft | Subscription
     startDate: sub.startDate,
     nextBillingDate: sub.nextBillingDate,
     autoCalculateNextBillingDate: sub.autoCalculateNextBillingDate,
+    pinned: sub.pinned,
     trialEndDate: sub.trialEndDate ?? null,
     website: sub.website ?? null,
     notes: sub.notes ?? null,
@@ -134,18 +165,44 @@ export function toSubscriptionWritePayload(sub: SubscriptionDraft | Subscription
 }
 
 export const subscriptionService = {
-  async list(): Promise<Subscription[]> {
+  pageSize: SUBSCRIPTION_PAGE_SIZE,
+
+  async listPage(cursor?: string | null, limit = SUBSCRIPTION_PAGE_SIZE): Promise<SubscriptionPage> {
     const userId = getCurrentUserId();
-    if (!userId) return [];
+    if (!userId) return { subscriptions: [], nextCursor: null, total: 0 };
+    const pageSize = normalizeSubscriptionPageLimit(limit);
     if (isCloudflareRuntime) {
-      const data = await apiFetch("/api/app/subscriptions", subscriptionsListResponseSchema);
-      return data.subscriptions.map(fromApiSubscription);
+      const params = new URLSearchParams({ limit: String(pageSize) });
+      if (cursor) params.set("cursor", cursor);
+      const data = await apiFetch(`/api/app/subscriptions?${params.toString()}`, subscriptionsListResponseSchema);
+      return {
+        subscriptions: data.subscriptions.map(fromApiSubscription),
+        nextCursor: data.nextCursor,
+        total: data.total,
+      };
     }
-    const rows = await pb.collection("subscriptions").getFullList<ApiSubscription>({
+    const page = Math.max(1, cursor ? Number.parseInt(cursor, 10) : 1);
+    const result = await withPocketBaseAuthGuard(pb.collection("subscriptions").getList<ApiSubscription>(page, pageSize, {
       filter: `user = "${userId}"`,
       sort: "-created",
-    });
-    return rows.map(fromApiSubscription);
+    }));
+    return {
+      subscriptions: result.items.map(fromApiSubscription),
+      nextCursor: page < result.totalPages ? String(page + 1) : null,
+      total: result.totalItems,
+    };
+  },
+
+  async list(): Promise<Subscription[]> {
+    const out: Subscription[] = [];
+    let cursor: string | null | undefined = null;
+    for (;;) {
+      const page = await this.listPage(cursor, SUBSCRIPTION_PAGE_SIZE);
+      out.push(...page.subscriptions);
+      // 聚合列表主要给统计/导出使用；上限避免异常数据量让单页 UI 拉取变成无界循环。
+      if (!page.nextCursor || out.length >= SUBSCRIPTION_AGGREGATE_LIMIT) return out.slice(0, SUBSCRIPTION_AGGREGATE_LIMIT);
+      cursor = page.nextCursor;
+    }
   },
 
   async create(sub: SubscriptionDraft): Promise<Subscription> {
@@ -159,7 +216,7 @@ export const subscriptionService = {
       });
       return fromApiSubscription(data.subscription);
     }
-    const row = await pb.collection("subscriptions").create<ApiSubscription>({ ...payload, user: userId });
+    const row = await withPocketBaseAuthGuard(pb.collection("subscriptions").create<ApiSubscription>({ ...payload, user: userId }));
     return fromApiSubscription(row);
   },
 
@@ -172,7 +229,7 @@ export const subscriptionService = {
       });
       return fromApiSubscription(data.subscription);
     }
-    const row = await pb.collection("subscriptions").update<ApiSubscription>(sub.id, payload);
+    const row = await withPocketBaseAuthGuard(pb.collection("subscriptions").update<ApiSubscription>(sub.id, payload));
     return fromApiSubscription(row);
   },
 
@@ -181,6 +238,6 @@ export const subscriptionService = {
       await apiFetch(`/api/app/subscriptions/${id}`, subscriptionDeleteResponseSchema, { method: "DELETE" });
       return;
     }
-    await pb.collection("subscriptions").delete(id);
+    await withPocketBaseAuthGuard(pb.collection("subscriptions").delete(id));
   },
 };

@@ -38,6 +38,12 @@ function filterBlocked(group: MediaCandidateGroup, blocked: ReadonlySet<string>)
   return { best, builtIn, favicon };
 }
 
+/**
+ * 管理媒体候选搜索弹层的异步状态。
+ *
+ * 图片加载失败、手动关闭和连续搜索都会改变候选集合；requestId + AbortController 共同防止旧请求
+ * 把过期候选写回当前弹层。
+ */
 export function useMediaCandidates(options: UseMediaCandidatesOptions): UseMediaCandidatesResult {
   const { kind, autoQuery, limit = 32, closeResetDelayMs = 0 } = options;
   const [open, setOpen] = useState(false);
@@ -70,6 +76,7 @@ export function useMediaCandidates(options: UseMediaCandidatesOptions): UseMedia
     abortRef.current?.abort();
     abortRef.current = null;
     requestIdRef.current += 1;
+    // 本轮被用户手动屏蔽的失败图片只影响当前搜索生命周期；关闭/取消后下一轮应重新给候选机会。
     blockedUrlsRef.current = new Set();
   }, []);
 
@@ -116,6 +123,7 @@ export function useMediaCandidates(options: UseMediaCandidatesOptions): UseMedia
           limit,
         }, controller.signal);
         if (controller.signal.aborted) return;
+        // abort 只能拦 fetch；requestId 负责拦住“请求已返回但用户已发起下一轮搜索”的旧结果。
         if (requestIdRef.current !== currentRequestId) return;
 
         const item = response.items[0];

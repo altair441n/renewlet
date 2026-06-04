@@ -51,8 +51,9 @@ jobs:
 
       - name: Build Cloudflare assets
         env:
-          RENEWLET_VERSION: 0.1.0
+          RENEWLET_VERSION: 0.0.0-dev
           RENEWLET_COMMIT: ${{ github.sha }}
+        # Cloudflare 冒烟只产出本地静态资产和 Worker bundle，不应用 D1 migration，也不需要账号 secrets。
         run: pnpm build:cloudflare
 
       - name: Set up Docker Buildx
@@ -64,9 +65,10 @@ jobs:
           context: .
           file: ./Dockerfile
           build-args: |
-            VERSION=0.1.0
+            VERSION=0.0.0-dev
             COMMIT=${{ github.sha }}
             BUILD_TIME=${{ env.RENEWLET_BUILD_TIME }}
           platforms: linux/amd64
           push: false
+          # 冒烟镜像只验证 Dockerfile 多阶段构建和自更新布局，不写 registry，fork 也能安全运行。
           tags: renewlet:smoke

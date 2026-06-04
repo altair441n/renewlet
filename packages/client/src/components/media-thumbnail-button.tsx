@@ -9,7 +9,9 @@ type MediaThumbnailSize = "sm" | "md";
 const MEDIA_THUMBNAIL_TOOLTIP_QUERY = "(hover: hover) and (pointer: fine) and (min-width: 768px)";
 
 interface MediaThumbnailButtonProps {
+  /** 缩略图源可能是私有资产路径或外部候选 URL，实际鉴权/代理由 FaviconResultImage 处理。 */
   src: string;
+  /** 作为按钮 aria-label 和图片 alt，保证仅图标候选也能被读屏选择。 */
   alt: string;
   selected: boolean;
   onClick: MouseEventHandler<HTMLButtonElement>;
@@ -19,11 +21,13 @@ interface MediaThumbnailButtonProps {
   tooltip?: string | undefined;
 }
 
+/** 根据输入设备能力决定缩略图 tooltip 是否启用。 */
 export function useMediaThumbnailTooltipEnabled() {
   // 缩略图候选常在 H5 sheet 的滚动区里；窄屏/触控不挂 Tooltip，避免长按、悬浮和拖动滚动抢同一套指针事件。
   return useMediaQuery(MEDIA_THUMBNAIL_TOOLTIP_QUERY);
 }
 
+/** MediaThumbnailButton 是 Logo/Icon 候选网格的可访问选择单元。 */
 export function MediaThumbnailButton({
   src,
   alt,

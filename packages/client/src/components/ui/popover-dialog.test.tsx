@@ -1,3 +1,4 @@
+// Popover/Dialog 组合测试保护移动端浮层栈与 backdrop 行为，避免 Radix portal 交互互相吞事件。
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import * as React from "react";
 import { describe, expect, it, vi } from "vitest";

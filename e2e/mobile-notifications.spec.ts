@@ -1,3 +1,4 @@
+// 移动端通知历史 E2E 用大量失败 job 撑开抽屉，专门保护长错误文本、滚动区域和顶部遮罩的布局边界。
 import { expect, test, type Page } from "@playwright/test";
 import { expectOverlayLeavesTopScrim } from "./support/layout";
 import { gotoSettingsAfterHydration } from "./support/settings";
@@ -7,6 +8,7 @@ type NotificationHistorySeed = {
 };
 
 async function createNotificationHistoryRecords(page: Page, seed: NotificationHistorySeed) {
+  // 通过真实 PocketBase auth 写入 notification_jobs，既能快速造历史，又不绕过当前用户隔离。
   const result = await page.evaluate(async ({ count }) => {
     const authRaw = window.localStorage.getItem("pocketbase_auth");
     if (!authRaw) {

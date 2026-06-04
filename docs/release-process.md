@@ -7,6 +7,7 @@ Renewlet uses a tag-driven release process. `dev` is the integration branch, `ma
 - `CI`: public quality gate. It needs no secrets and works for forks and PRs.
 - `Build Smoke`: public build smoke test. It needs no secrets, validates Docker build and Cloudflare build, and never pushes or deploys.
 - `Cloudflare Worker`: self-managed Worker deployment for fork users or maintainer test environments. It skips remote deployment when Cloudflare secrets are missing; once secrets exist, it applies D1 migrations and deploys the Worker.
+- `Docker Hub Overview`: manual metadata sync for the official Docker Hub page. It does not build or push images.
 - `Maintainer Release`: the only manual maintainer release workflow. Use `action=prepare|rc|promote` to choose the stage.
 - `Release Publish`: tag-driven official publishing workflow for `v*.*.*` tags. It handles Docker images, GitHub Releases, and the production Cloudflare approval chain.
 
@@ -14,7 +15,9 @@ Official Docker publishing and production Cloudflare deploys live inside `Releas
 
 ## Docker Hub Overview
 
-Docker Hub does not populate the repository Overview from image pushes. `Release Publish` updates the Docker Hub short description and Overview after the official image push succeeds, using `README.md` as the source.
+Docker Hub does not populate the repository Overview from image pushes, and it does not resolve GitHub-style relative links in README content. `Release Publish` updates the Docker Hub short description and Overview after the official image push succeeds by generating a Docker Hub-specific README from `README.md` with absolute GitHub and raw asset URLs.
+
+Use the manual `Docker Hub Overview` workflow when the Overview needs to be refreshed without publishing a new RC or stable image. The manual workflow runs the same generator and updates only Docker Hub repository metadata; it does not build, tag, push, or deploy anything.
 
 Keep repository secrets `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` configured before publishing RC or stable tags. The token must be able to push `zhiyingzzhou/renewlet` and update repository metadata, because the same release job handles both image upload and Overview synchronization.
 
@@ -50,7 +53,7 @@ Add these repository settings before running `Maintainer Release`:
 2. Run the `Maintainer Release` workflow with `action=prepare`.
 3. Enter a stable SemVer version such as `0.1.0`.
 4. The workflow syncs package versions and pushes or updates `release/v0.1.0`.
-5. Edit `CHANGELOG.md` for that version. Keep the notes short and user-facing; the GitHub Release links to the full commit history separately.
+5. Edit `docs/release-notes/vX.Y.Z-zh.md` as the GitHub Release body. Add `docs/release-notes/vX.Y.Z-en.md` when an English entry is needed. The release script only appends Docker image tags and the GitHub compare link.
 6. Keep release-only fixes on `release/v0.1.0`.
 7. Do not open the `main` PR yet; publish and validate at least one RC first.
 
@@ -61,6 +64,7 @@ Add these repository settings before running `Maintainer Release`:
 3. Enter the RC number, for example `1`.
 4. The workflow creates tag `v0.1.0-rc.1` with the release bot token.
 5. GitHub only starts the tag-driven `Release Publish` workflow when the tag is pushed by the release bot token. Tags created by the default `GITHUB_TOKEN` do not trigger follow-up workflows.
+   Before softprops creates the RC GitHub prerelease, `Release Publish` deletes stale draft Releases with the same tag because a leftover draft can make the first publish fail with `tag_name already_exists`.
 6. `Release Publish` builds and pushes:
    - `zhiyingzzhou/renewlet:0.1.0-rc.1`
    - `zhiyingzzhou/renewlet:rc`
@@ -95,23 +99,27 @@ git push origin v0.1.0
 ```
 
 3. `Release Publish` builds Docker images, creates a draft GitHub Release, and attaches `renewlet-docker-v0.1.0.zip`, `renewlet_0.1.0_linux_amd64.tar.gz`, `renewlet_0.1.0_linux_arm64.tar.gz`, and `checksums.txt`.
-4. Stable releases push:
+4. The workflow rejects a tag when the workspace package versions do not match the tag version. RC tags validate against the stable package version without writing the `-rc.N` suffix into `package.json`.
+5. Stable releases push:
    - `zhiyingzzhou/renewlet:0.1.0`
    - `zhiyingzzhou/renewlet:0.1`
    - `zhiyingzzhou/renewlet:latest`
    - `ghcr.io/zhiyingzzhou/renewlet:0.1.0`
    - `ghcr.io/zhiyingzzhou/renewlet:0.1`
    - `ghcr.io/zhiyingzzhou/renewlet:latest`
-5. Review the draft Release, verify the Docker image list and short changelog, then publish it manually.
-6. Approve the `production-cloudflare` environment if this release should deploy the production Worker. Stable releases use the production deploy job inside `Release Publish`, not the `Cloudflare Worker` test deploy workflow.
+6. Review the draft Release, verify the Docker image list and Full Changelog compare link, then publish it manually.
+7. Approve the `production-cloudflare` environment if this release should deploy the production Worker. Stable releases use the production deploy job inside `Release Publish`, not the `Cloudflare Worker` test deploy workflow.
 
 ## Docker In-App Updates
 
 - `/renewlet` is the stable Docker entrypoint and healthcheck path; do not remove it in later releases.
 - The real self-update target is `/opt/renewlet/current/renewlet`; the updater never replaces `/renewlet`.
-- Users on images older than this layout must still run `docker compose pull && docker compose up -d` once. Later stable releases can be installed from the admin version dialog.
+- Users on images older than this layout must still run `docker compose pull && docker compose up -d` once. Later stable releases can be installed from System Update, opened from the top version badge.
 - Release binary archives must be Linux `amd64` and `arm64` tarballs named `renewlet_<version>_linux_<arch>.tar.gz`, with matching SHA-256 entries in `checksums.txt`.
-- Cloudflare builds only expose version/release information and must not expose an executable update path.
+- `/api/app/admin/system/version` reports `deployment` as `docker`, `cloudflare`, or `source`, and `updateMode` as `in-app-binary`, `docker-compose`, `cloudflare-deploy`, or `source-manual`. `updateSupported` only means the admin dialog may execute the in-app binary update.
+- The running version selects the self-update channel: stable versions only check stable Releases, while `x.y.z-rc.N` versions only check valid prerelease RCs and may update from a lower RC to a higher RC. If the current channel has no higher valid target, the version check succeeds and reports the deployment as up to date.
+- Docker release images with the new layout return `deployment=docker`, `updateMode=in-app-binary`, and `updateSupported=true`. Disabled self-update, old bridge layouts, and non-release builds must return the correct manual mode and a single unsupported reason.
+- Cloudflare builds return `deployment=cloudflare`, `updateMode=cloudflare-deploy`, and `updateSupported=false`; `checkSucceeded=true` only means the Worker read build metadata and deploy-only upgrade capability, not that it performed a GitHub latest-release check. Self-managed branch deployments show `packageVersion-dev+shortSha` and a commit link, while official stable production deployments show the tag version and release link. Cloudflare must not expose an executable update path.
 
 ## Hotfix
 

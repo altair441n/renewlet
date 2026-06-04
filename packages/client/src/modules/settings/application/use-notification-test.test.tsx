@@ -1,3 +1,4 @@
+// 通知测试 hook 测试保护“未保存设置临时传入服务端”的流程，避免要求用户先保存再测试。
 import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_SETTINGS } from "@/types/subscription";

@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# 一键 Docker 部署引导脚本。
+# 触发时机：用户在空目录手动执行；依赖 Docker Compose v2，以及 curl/wget 与 openssl 或 /dev/urandom。
+# 可覆盖变量：RENEWLET_RAW_BASE、RENEWLET_COMPOSE_FILE、RENEWLET_ENV_FILE、RENEWLET_DATA_DIR。
 set -euo pipefail
 
 RAW_BASE="${RENEWLET_RAW_BASE:-https://raw.githubusercontent.com/zhiyingzzhou/renewlet/main/deploy}"

@@ -1,7 +1,9 @@
 services:
   web:
+    # GHCR 镜像入口用于无法访问 Docker Hub 的部署；运行时契约与 Docker Hub compose 保持一致。
     image: ghcr.io/zhiyingzzhou/renewlet:latest
     environment:
+      # PB_ENCRYPTION_KEY、CRON_SECRET 等 secret 由 .env 注入，不在 compose 中写死。
       GOMEMLIMIT: ${GOMEMLIMIT:-128MiB}
       TZ: ${TZ:-Asia/Shanghai}
       APP_URL: ${APP_URL:-http://localhost:3000}
@@ -21,6 +23,7 @@ services:
       NOTIFICATION_MAX_RETRIES: ${NOTIFICATION_MAX_RETRIES:-3}
       NOTIFICATION_STALE_SENDING_MINUTES: ${NOTIFICATION_STALE_SENDING_MINUTES:-15}
     volumes:
+      # 命名卷适合 compose 管理；迁移到其它宿主机时需要显式备份该 volume。
       - renewlet-pb-data:/pb_data
     ports:
       - "${PORT:-3000}:3000"

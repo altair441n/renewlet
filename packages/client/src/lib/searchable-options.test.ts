@@ -1,3 +1,4 @@
+// searchable-options 测试保护货币/标签搜索的宽松匹配口径，避免下拉搜索在中英文输入下退化。
 import { describe, expect, it } from "vitest";
 import { CURRENCY_OPTIONS } from "@/types/subscription";
 import {

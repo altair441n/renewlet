@@ -1,3 +1,4 @@
+// Statistics 页面测试保护统计模型到图表 UI 的装配，避免 Recharts 容器和金额口径脱节。
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -108,6 +109,7 @@ function subscription(overrides: SubscriptionOverrides): Subscription {
     repeatReminderEnabled: false,
     repeatReminderInterval: "1h",
     repeatReminderWindow: "72h",
+    pinned: false,
   };
 
   if (overrides.billingCycle === "custom") {
@@ -161,6 +163,20 @@ describe("Statistics page", () => {
       ],
       isPending: false,
     });
+  });
+
+  it("renders a page-isomorphic skeleton while statistics inputs are pending", () => {
+    mocks.useSubscriptions.mockReturnValue({
+      data: undefined,
+      isPending: true,
+    });
+
+    renderStatistics();
+
+    const skeleton = screen.getByTestId("statistics-skeleton");
+    expect(skeleton).toHaveAttribute("aria-hidden", "true");
+    expect(skeleton.querySelectorAll(".rounded-xl.border.border-border.bg-card")).toHaveLength(14);
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 
   it("shows the inactive savings explanation on hover", async () => {

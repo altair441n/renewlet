@@ -66,6 +66,12 @@ export const jobChannelsResponseSchema = z.object({
   failed: z.array(channelFailureResponseSchema),
 }).strict();
 
+/**
+ * 手动运行和 Cron 运行共用的通知任务结果。
+ *
+ * Go 与 Cloudflare 都按这个结构表达“计划时间、候选内容、渠道结果”，前端历史页不需要理解
+ * 具体运行面；空对象只表示本次没有可持久化的任务结果。
+ */
 export const cronJobResultResponseSchema = z.object({
   source: z.literal("cron"),
   reason: z.string().nullable(),
@@ -95,6 +101,7 @@ export const notificationJobResultResponseSchema = z.union([cronJobResultRespons
 export const notificationHistoryStatusSchema = z.enum(["all", "sent", "failed", "skipped", "sending"]);
 export const notificationJobStatusSchema = z.enum(["pending", "sending", "sent", "failed", "skipped"]);
 
+/** 通知历史行是审计契约，必须保留本地计划时间、UTC instant 和渠道执行结果三组信息。 */
 export const notificationHistoryJobResponseSchema = z.object({
   id: z.string(),
   scheduledLocalDate: dateOnlyResponseSchema,

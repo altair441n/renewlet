@@ -25,6 +25,11 @@ export function isPrivateAssetLogoReference(value: string): boolean {
   return privateAssetPathPattern.test(value.trim());
 }
 
+/**
+ * 校验用户手填 Logo URL。
+ *
+ * 持久化契约只允许无 userinfo 的 http(s) 外链；私有资产路径由上传流程产生，不走这个输入框。
+ */
 export function validateCustomLogoUrlInput(value: string): LogoUrlValidationResult {
   const trimmed = value.trim();
   if (!trimmed) return { ok: false, code: "empty" };
@@ -74,6 +79,7 @@ export function resolveDisplayLogoSrc(
   }
 
   if (pageProtocol === "https:" && parsed.protocol === "http:") {
+    // HTTPS 页面上临时升级普通域名图片，避免 mixed content；IP host 不猜测 HTTPS 能力，直接 fallback。
     if (isIpHostname(parsed.hostname)) return undefined;
     parsed.protocol = "https:";
     return parsed.toString();

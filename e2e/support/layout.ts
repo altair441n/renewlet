@@ -22,33 +22,36 @@ export async function getRequiredLocatorBoundingBox(locator: Locator, label: str
 // 这类布局回归不会出现在 role/label 断言里：Radix 包装层、隐藏 input 或 chip field
 // 变动都可能让 label 和控件视觉脱节，所以用真实 DOMRect 约束可见间距。
 export async function expectLabelControlGap(control: Locator, label: string) {
-  await control.scrollIntoViewIfNeeded();
-  const gap = await control.evaluate((element) => {
-    if (!(element instanceof HTMLElement)) {
-      throw new Error("Control is not an HTMLElement");
-    }
+  await expect(async () => {
+    await expect(control, `${label}: control visible before layout measurement`).toBeVisible();
+    await control.scrollIntoViewIfNeeded();
+    const gap = await control.evaluate((element) => {
+      if (!(element instanceof HTMLElement)) {
+        throw new Error("Control is not an HTMLElement");
+      }
 
-    if (!element.id) {
-      throw new Error("Control has no id for label lookup");
-    }
+      if (!element.id) {
+        throw new Error("Control has no id for label lookup");
+      }
 
-    const labelElement = document.querySelector<HTMLLabelElement>(`label[for="${CSS.escape(element.id)}"]`);
-    if (!labelElement) {
-      throw new Error(`Missing label for #${element.id}`);
-    }
+      const labelElement = document.querySelector<HTMLLabelElement>(`label[for="${CSS.escape(element.id)}"]`);
+      if (!labelElement) {
+        throw new Error(`Missing label for #${element.id}`);
+      }
 
-    const labelRect = labelElement.getBoundingClientRect();
-    // tag 输入的可见控件是 chip field 外壳，原始 input 只是内部 autosize 光标。
-    const visualControl =
-      element instanceof HTMLInputElement
-        ? element.closest<HTMLElement>('[data-slot="subscription-tag-field"]') ?? element
-        : element;
-    const controlRect = visualControl.getBoundingClientRect();
-    return Math.round((controlRect.top - labelRect.bottom) * 100) / 100;
-  });
+      const labelRect = labelElement.getBoundingClientRect();
+      // tag 输入的可见控件是 chip field 外壳，原始 input 只是内部 autosize 光标。
+      const visualControl =
+        element instanceof HTMLInputElement
+          ? element.closest<HTMLElement>('[data-slot="subscription-tag-field"]') ?? element
+          : element;
+      const controlRect = visualControl.getBoundingClientRect();
+      return Math.round((controlRect.top - labelRect.bottom) * 100) / 100;
+    });
 
-  expect(gap, `${label}: label/control gap`).toBeGreaterThanOrEqual(7);
-  expect(gap, `${label}: label/control gap`).toBeLessThanOrEqual(9);
+    expect(gap, `${label}: label/control gap`).toBeGreaterThanOrEqual(7);
+    expect(gap, `${label}: label/control gap`).toBeLessThanOrEqual(9);
+  }, `${label}: stable label/control gap`).toPass();
 }
 
 interface LayoutSnapshot {

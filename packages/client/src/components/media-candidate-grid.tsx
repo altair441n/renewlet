@@ -41,14 +41,19 @@ const ALL_PROVIDERS_FILTER = "__all__";
 type ProviderFilter = typeof ALL_PROVIDERS_FILTER | string;
 
 interface MediaCandidateGridProps {
+  /** 后端/Worker 已按契约分组的候选；前端只做 provider 过滤和展示，不重新推断来源。 */
   candidates: MediaCandidateGroup;
+  /** 当前选中 URL，可能来自上传资产、外链或任一 provider 候选。 */
   selectedValue?: string | null | undefined;
+  /** 选择后由调用方写入具体业务表单。 */
   onSelect: (candidate: MediaCandidate) => void;
+  /** 图片加载失败会回传到搜索 hook 的本轮屏蔽集合，避免坏链接继续占位。 */
   onError: (candidate: MediaCandidate) => void;
   size?: "sm" | "md" | undefined;
   columnsClassName?: string | undefined;
 }
 
+/** MediaCandidateGrid 渲染统一媒体候选响应，并保留内置 provider 的本地筛选状态。 */
 export function MediaCandidateGrid({
   candidates,
   selectedValue,
@@ -71,6 +76,7 @@ export function MediaCandidateGrid({
   const hasCandidateSections = candidates.builtIn.length > 0 || candidates.favicon.length > 0;
 
   useEffect(() => {
+    // provider 过滤只对当前响应有效；新搜索缺少旧 provider 时必须回到“全部”，否则用户会看到假空态。
     if (selectedProvider !== ALL_PROVIDERS_FILTER && !providerSet.has(selectedProvider)) {
       setSelectedProvider(ALL_PROVIDERS_FILTER);
     }

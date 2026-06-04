@@ -1,3 +1,4 @@
+// messages 测试保护 Lingui 动态 catalog 加载和静态 fallback，避免翻译 key 缺失时破坏同步 formatter。
 import { describe, expect, it } from "vitest";
 import { I18nProvider, useI18n } from "@/i18n/I18nProvider";
 import { translate } from "@/i18n/messages";

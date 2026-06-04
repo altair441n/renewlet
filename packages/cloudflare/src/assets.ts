@@ -1,31 +1,38 @@
 import { uploadKindSchema } from "@renewlet/shared/schemas/media";
 import { getAsset, listAssets, newId, nowIso } from "./db";
-import { HttpError, json, requestLocale, tr } from "./http";
+import { HttpError, json, requestLocale } from "./http";
+import { serverText } from "./server-i18n";
 import { requireAuth } from "./auth";
 import type { AssetRow, Env } from "./types";
 
 const MAX_ASSET_BYTES = 2 * 1024 * 1024;
 const ALLOWED_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif", "image/svg+xml", "image/x-icon", "image/vnd.microsoft.icon"]);
 
+/**
+ * uploadAsset 接收当前用户上传的 Logo/Icon 私有资产。
+ *
+ * R2 只负责对象存储，D1 asset metadata 才是 owner、类型和可读取路径的权限事实来源。
+ */
 export async function uploadAsset(request: Request, env: Env): Promise<Response> {
   const locale = requestLocale(request);
   const auth = await requireAuth(request, env);
   const form = await request.formData();
   const kind = uploadKindSchema.parse(form.get("kind"));
   const file = form.get("file");
-  if (!(file instanceof File)) throw new HttpError(400, tr(locale, "请选择要上传的图片", "Choose an image to upload"));
+  if (!(file instanceof File)) throw new HttpError(400, serverText(locale, "asset.uploadChooseImage"));
   if (file.size <= 0 || file.size > MAX_ASSET_BYTES) {
-    throw new HttpError(400, tr(locale, "图片大小无效", "Invalid image size"));
+    throw new HttpError(400, serverText(locale, "asset.invalidImageSize"));
   }
   const contentType = normalizeContentType(file.type, file.name);
   if (!ALLOWED_IMAGE_TYPES.has(contentType)) {
-    throw new HttpError(400, tr(locale, "图片类型无效", "Invalid image type"));
+    throw new HttpError(400, serverText(locale, "asset.invalidImageType"));
   }
 
   // R2 key 带 userId，不靠文件名隔离；D1 元数据仍是权限判断的真相来源。
   const timestamp = nowIso();
   const id = newId("ast");
   const key = `${auth.user.id}/${kind}/${id}/${sanitizeFilename(file.name)}`;
+  // R2 先落对象再写 metadata；若 D1 写入失败会留下不可枚举孤儿，但不会越权暴露给用户。
   await env.ASSETS_BUCKET.put(key, file.stream(), {
     httpMetadata: { contentType },
     customMetadata: { userId: auth.user.id, kind },
@@ -38,14 +45,19 @@ export async function uploadAsset(request: Request, env: Env): Promise<Response>
   return json({ url: `/api/app/assets/${id}` }, { status: 201 });
 }
 
+/**
+ * readAsset 通过受控 API 返回当前用户的私有资产。
+ *
+ * 读取顺序必须先校验 D1 owner 再访问 R2，不能把 R2 key 或公开 URL 暴露成绕过登录态的图片入口。
+ */
 export async function readAsset(request: Request, env: Env, id: string): Promise<Response> {
   const locale = requestLocale(request);
   const auth = await requireAuth(request, env);
   // 先按 owner 查 D1，再取 R2；不能让可猜测的 R2 key 绕过私有资产语义。
   const row = await getAsset(env, auth.user.id, id);
-  if (!row) throw new HttpError(404, tr(locale, "资产不存在", "Asset not found"));
+  if (!row) throw new HttpError(404, serverText(locale, "asset.missing"));
   const object = await env.ASSETS_BUCKET.get(row.r2_key);
-  if (!object) throw new HttpError(404, tr(locale, "资产文件不存在", "Asset file not found"));
+  if (!object) throw new HttpError(404, serverText(locale, "asset.fileMissing"));
 
   const contentType = row.mime_type || object.httpMetadata?.contentType || "application/octet-stream";
   const headers = new Headers();
@@ -60,11 +72,17 @@ export async function readAsset(request: Request, env: Env, id: string): Promise
   return new Response(object.body, { headers });
 }
 
+/**
+ * listUploadedAssets 分页列出当前用户可复用的上传资产。
+ *
+ * Logo 选择器会频繁打开该接口，分页和 perPage 上限保护 D1 查询成本，也避免跨用户资产枚举。
+ */
 export async function listUploadedAssets(request: Request, env: Env): Promise<Response> {
   const auth = await requireAuth(request, env);
   const url = new URL(request.url);
   const kind = url.searchParams.get("kind") === "icon" ? "icon" : "logo";
   const page = positiveInt(url.searchParams.get("page"), 1);
+  // perPage 上限保护 D1/R2 列表页，不让 Logo 选择器变成无界资产枚举接口。
   const perPage = clamp(positiveInt(url.searchParams.get("perPage"), 48), 1, 96);
   const result = await listAssets(env, auth.user.id, kind, page, perPage);
   return json({

@@ -1,3 +1,4 @@
+// display-error 测试保护后端错误 code/fieldErrors 到用户提示的映射，避免 UI 重新解析宽松 error shape。
 import { describe, expect, it } from "vitest";
 import { ApiError } from "./api-client";
 import { genericLoginErrorMessage, getAuthDisplayMessage, getDisplayErrorMessage } from "./display-error";
@@ -17,6 +18,11 @@ describe("display-error", () => {
     expect(getDisplayErrorMessage(new ApiError("SUBSCRIPTION_NAME_REQUIRED", 400))).toBe("请输入订阅名称");
     expect(getDisplayErrorMessage(new ApiError("NEXT_BILLING_DATE_BEFORE_START_DATE", 400))).toBe("到期日期不能早于开始日期");
     expect(getDisplayErrorMessage({ response: { message: "CUSTOM_CONFIG_ITEM_INVALID:categories:CONFIG_ITEM_LABELS_REQUIRED" } })).toBe("配置项必须同时填写中文名和英文名");
+  });
+
+  it("prefers stable backend codes over localized server messages", () => {
+    expect(getDisplayErrorMessage(new ApiError("Request body is too large", 413, undefined, "BODY_TOO_LARGE"))).toBe("请求体过大");
+    expect(getDisplayErrorMessage({ response: { code: "BODY_TOO_LARGE", message: "Request body is too large" } })).toBe("请求体过大");
   });
 
   it("keeps login failures generic for auth client plain objects", () => {

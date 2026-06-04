@@ -1,3 +1,4 @@
+// 通知历史 hook 测试保护 infinite query 合并策略，summary/upcoming 不应随翻页被历史页覆盖。
 import type { ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";

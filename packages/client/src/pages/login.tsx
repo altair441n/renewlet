@@ -23,6 +23,7 @@ import { toast } from '@/components/ui/sonner';
 import { authClient } from '@/lib/auth-client';
 import { getAuthDisplayMessage } from '@/lib/display-error';
 import { sanitizeNextPath } from '@/lib/redirect';
+import { reportClientError } from "@/lib/report-client-error";
 import { usePasswordResetAvailability } from '@/hooks/use-password-reset-availability';
 import { useSetupStatus } from '@/hooks/use-setup-status';
 import { useI18n } from '@/i18n/I18nProvider';
@@ -45,7 +46,7 @@ const Login = () => {
   const { t } = useI18n();
   const showSetupPrompt = setupStatus.setupRequired && setupStatus.setupEnabled;
 
-  /** 读取并校验 next 跳转路径（只允许站内路径）。 */
+  /** 读取并校验 next 跳转路径；登录页是开放路由，必须在这里防止开放重定向。 */
   const getNextPath = () => {
     if (typeof window === "undefined") return "/";
     const raw = new URLSearchParams(window.location.search).get("next");
@@ -85,7 +86,6 @@ const Login = () => {
     });
   };
 
-  /** 邮箱密码登录。 */
   const handleLogin = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const { nextErrors, trimmedEmail } = validate();
@@ -100,16 +100,17 @@ const Login = () => {
     try {
       const { error } = await authClient.signIn.email({ email: trimmedEmail, password });
       if (error) {
-        console.error('Login error:', error);
+        reportClientError(error, { source: "login" });
         toast.error(t("auth.loginFailed"), {
           description: getAuthDisplayMessage(error),
         });
         return;
       }
       toast.success(t("auth.loginSuccess"));
+      // 登录成功后只跳转 sanitize 后的站内路径，避免 next 参数把 token/session 状态带到外站。
       router.push(getNextPath());
     } catch (err: unknown) {
-      console.error('Login error:', err);
+      reportClientError(err, { source: "login" });
       toast.error(t("auth.loginFailed"), {
         description: getAuthDisplayMessage(err),
       });
@@ -120,7 +121,6 @@ const Login = () => {
 
   return (
     <div className="app-page bg-background theme-gradient flex">
-      {/* 左侧品牌区 */}
       <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-primary/20 via-primary/10 to-background items-center justify-center p-12">
         <div className="max-w-md grid gap-8">
           <div className="flex items-center gap-3">
@@ -155,10 +155,8 @@ const Login = () => {
         </div>
       </div>
 
-      {/* 右侧登录表单 */}
       <div className="auth-form-panel flex-1 flex items-center justify-center">
         <div className="w-full max-w-md grid gap-8">
-          {/* 移动端 logo */}
           <div className="flex items-center justify-center gap-3 lg:hidden">
             <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-[#111720] text-[#f8fafc] shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_16px_32px_-22px_rgba(0,0,0,0.8)] ring-1 ring-white/10">
               <RenewletLogo className="h-6 w-6" />

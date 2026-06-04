@@ -23,6 +23,7 @@
  * 注意： 不要恢复 `apiFetch<T>` 式的纯类型断言；本文件是前端拒绝异常 API 响应的唯一运行时边界。
  */
 import { getAuthHeader } from "@/lib/pocketbase";
+import { clearAuthSession } from "@/lib/auth-session";
 import { getApiLocale, getLocaleHeaders } from "@/i18n/api-locale";
 import { translate } from "@/i18n/messages";
 import { z } from "zod";
@@ -47,8 +48,8 @@ export class ApiError extends Error {
   }
 }
 
+/** 请求级 fetch 配置；`timeoutMs` 只在本 client 内消费，不透传给浏览器 fetch。 */
 export type ApiFetchInit = RequestInit & {
-  // timeoutMs 是前端本地保护，不传给原生 fetch，避免不同运行时忽略未知字段。
   timeoutMs?: number;
 };
 
@@ -222,6 +223,7 @@ export async function apiFetch<Schema extends z.ZodType>(
   for (const [key, value] of Object.entries(getLocaleHeaders())) {
     if (!headers.has(key)) headers.set(key, value);
   }
+  // 认证 header 由运行面适配层提供：Docker 读 PocketBase authStore，Cloudflare 读本地 session cache。
   for (const [key, value] of Object.entries(getAuthHeader())) {
     if (!headers.has(key)) headers.set(key, value);
   }
@@ -252,6 +254,9 @@ export async function apiFetch<Schema extends z.ZodType>(
 
   if (!res.ok) {
     const message = getErrorMessage(json) || res.statusText || "Request failed";
+    if (res.status === 401) {
+      clearAuthSession();
+    }
     throw new ApiError(message, res.status, json, getErrorCode(json));
   }
 

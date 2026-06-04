@@ -28,11 +28,11 @@ func handleNotificationCron(app core.App, e *core.RequestEvent) error {
 		return e.JSON(http.StatusInternalServerError, cronErrorResponse{
 			OK:      false,
 			Code:    "CRON_SECRET_MISSING",
-			Message: tr(locale, "服务端缺少 CRON_SECRET 环境变量", "Server is missing the CRON_SECRET environment variable"),
+			Message: serverText(locale, "notification.cronMissingSecret"),
 		})
 	}
 	if !cronBearerSecretMatches(expectedSecret, e.Request.Header.Get("Authorization")) {
-		return e.UnauthorizedError(tr(locale, "Cron 鉴权失败", "Cron authentication failed"), nil)
+		return e.UnauthorizedError(serverText(locale, "notification.cronAuthFailed"), nil)
 	}
 
 	query := e.Request.URL.Query()
@@ -41,7 +41,7 @@ func handleNotificationCron(app core.App, e *core.RequestEvent) error {
 		DryRun: query.Get("dryRun") == "1" || query.Get("dry-run") == "1",
 	})
 	if err != nil {
-		return e.InternalServerError(tr(locale, "通知调度执行失败", "Notification cron run failed"), err)
+		return e.InternalServerError(serverText(locale, "notification.cronRunFailed"), err)
 	}
 	return e.JSON(http.StatusOK, result)
 }
@@ -64,17 +64,17 @@ func handleNotificationTest(app core.App, e *core.RequestEvent) error {
 	locale := requestLocale(e.Request)
 	body, err := decodeStrictJSON[notificationTestRequest](e.Request, locale)
 	if err != nil {
-		return e.BadRequestError(validationErrorMessage(locale, "请求体无效", "Invalid request body", err), err)
+		return e.BadRequestError(validationErrorMessage(locale, "common.invalidRequestBody", err), err)
 	}
 
 	settings, err := currentUserSettings(app, e.Auth, body.Settings)
 	if err != nil {
-		return e.BadRequestError(tr(locale, "通知设置无效", "Invalid notification settings"), err)
+		return e.BadRequestError(serverText(locale, "notification.settingsInvalid"), err)
 	}
 	settings.Locale = string(locale)
 	message := buildTestNotification(time.Now(), settings)
 	if err := sendToChannel(app, body.Channel, settings, message); err != nil {
-		return e.BadRequestError(tr(locale, "测试通知发送失败："+err.Error(), "Test notification failed: "+err.Error()), nil)
+		return e.BadRequestError(serverFormat(locale, "notification.testFailed", map[string]interface{}{"error": err.Error()}), nil)
 	}
 	return e.JSON(http.StatusOK, newOKResponse())
 }
@@ -85,17 +85,17 @@ func handleNotificationRun(app core.App, e *core.RequestEvent) error {
 	locale := requestLocale(e.Request)
 	body, err := decodeOptionalStrictJSON[notificationRunRequest](e.Request, locale)
 	if err != nil {
-		return e.BadRequestError(validationErrorMessage(locale, "请求体无效", "Invalid request body", err), err)
+		return e.BadRequestError(validationErrorMessage(locale, "common.invalidRequestBody", err), err)
 	}
 
 	settings, err := currentUserSettings(app, e.Auth, body.Settings)
 	if err != nil {
-		return e.BadRequestError(tr(locale, "通知设置无效", "Invalid notification settings"), err)
+		return e.BadRequestError(serverText(locale, "notification.settingsInvalid"), err)
 	}
 	settings.Locale = string(locale)
 	subscriptions, err := listNotificationSubscriptions(app, e.Auth.Id)
 	if err != nil {
-		return e.InternalServerError(tr(locale, "加载订阅失败", "Failed to load subscriptions"), err)
+		return e.InternalServerError(serverText(locale, "notification.loadSubscriptionsFailed"), err)
 	}
 	message := buildDueNotification(time.Now(), settings, subscriptions, true)
 	if !message.HasPayload && !body.Force {
@@ -103,7 +103,7 @@ func handleNotificationRun(app core.App, e *core.RequestEvent) error {
 		return e.JSON(http.StatusOK, notificationRunSkippedResponse{OK: true, Sent: false, Reason: "no_due_items"})
 	}
 	if len(settings.EnabledChannels) == 0 {
-		return e.BadRequestError(tr(locale, "未启用任何通知渠道，请先到设置页勾选通知方式。", "No notification channels are enabled. Enable one in Settings first."), nil)
+		return e.BadRequestError(serverText(locale, "notification.noEnabledChannels"), nil)
 	}
 
 	summary := sendToChannels(app, settings.EnabledChannels, settings, message)
@@ -120,18 +120,18 @@ func handleNotificationHistory(app core.App, e *core.RequestEvent) error {
 		status = "all"
 	}
 	if status != "all" && status != notificationStatusSent && status != notificationStatusFailed && status != notificationStatusSkipped && status != notificationStatusSending {
-		return e.BadRequestError(tr(locale, "通知历史状态无效", "Invalid notification history status"), nil)
+		return e.BadRequestError(serverText(locale, "notification.historyStatusInvalid"), nil)
 	}
 	limit := clampInt(parseInt(query.Get("limit"), 20), 1, 50)
 	offset := maxInt(parseInt(query.Get("offset"), 0), 0)
 
 	settings, err := currentUserSettings(app, e.Auth, nil)
 	if err != nil {
-		return e.BadRequestError(tr(locale, "通知设置无效", "Invalid notification settings"), err)
+		return e.BadRequestError(serverText(locale, "notification.settingsInvalid"), err)
 	}
 	subscriptions, err := listNotificationSubscriptions(app, e.Auth.Id)
 	if err != nil {
-		return e.InternalServerError(tr(locale, "加载订阅失败", "Failed to load subscriptions"), err)
+		return e.InternalServerError(serverText(locale, "notification.loadSubscriptionsFailed"), err)
 	}
 	overview := buildNotificationOverview(time.Now(), settings, subscriptions, 30)
 
@@ -143,7 +143,7 @@ func handleNotificationHistory(app core.App, e *core.RequestEvent) error {
 	}
 	rows, err := app.FindRecordsByFilter("notification_jobs", filter, "-scheduledInstantUtc,-created", limit+1, offset, params)
 	if err != nil {
-		return e.InternalServerError(tr(locale, "加载通知历史失败", "Failed to load notification history"), err)
+		return e.InternalServerError(serverText(locale, "notification.loadHistoryFailed"), err)
 	}
 	jobs := rows
 	hasMore := false

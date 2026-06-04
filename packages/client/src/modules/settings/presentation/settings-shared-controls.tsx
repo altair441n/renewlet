@@ -1,10 +1,3 @@
-/**
- * 设置页共享控件。
- *
- * 架构位置：收敛 SettingsScreen 中重复的字段外壳、保存状态和勾选项布局，保持 presentation 轻量。
- *
- * 注意： 这里只处理展示组合，不引入 settings 保存副作用。
- */
 import type { ReactNode } from 'react';
 import { Loader2 } from 'lucide-react';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -15,11 +8,17 @@ import type { AppSettings } from '@/types/subscription';
 export type UpdateSetting = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void;
 
 export interface LoadingButtonContentProps {
+  /** 控制是否显示加载层；原 children 会隐身保留尺寸，避免按钮宽度抖动。 */
   loading: boolean;
   loadingLabel: string;
   children: ReactNode;
 }
 
+/**
+ * 保持按钮加载前后尺寸稳定的内容包装。
+ *
+ * 注意：settings 页面大量按钮在网格/弹窗 footer 中并排出现，加载时重新排版会放大移动端误触风险。
+ */
 export function LoadingButtonContent({ loading, loadingLabel, children }: LoadingButtonContentProps) {
   return (
     <>
@@ -40,6 +39,7 @@ export function LoadingButtonContent({ loading, loadingLabel, children }: Loadin
 }
 
 export interface CheckboxSettingRowProps {
+  /** label 与控件的稳定关联 id；E2E 布局检查依赖这个显式 for/id 关系。 */
   id: string;
   checked: boolean;
   onCheckedChange: (checked: boolean) => void;
@@ -48,6 +48,7 @@ export interface CheckboxSettingRowProps {
   className?: string;
 }
 
+/** 设置页复用的 checkbox 行，固定 label/control 间距并允许描述文本换行。 */
 export function CheckboxSettingRow({
   id,
   checked,

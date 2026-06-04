@@ -1,6 +1,7 @@
 import {
   importApplyRequestSchema,
   importApplyResponseSchema,
+  IMPORT_APPLY_SUBSCRIPTION_LIMIT,
   importPreviewRequestSchema,
   importPreviewResponseSchema,
   type ImportConflictMode,
@@ -13,23 +14,24 @@ import { appSettingsSchema } from "@renewlet/shared/schemas/settings";
 import { customConfigSchema } from "@renewlet/shared/schemas/custom-config";
 import { cleanBuiltInIconSourceSettingsPatch, mergeBuiltInIconSourceSettings } from "@renewlet/shared/built-in-icons";
 import { getSettings, listSubscriptions, newId, nowIso, parseJsonObject } from "./db";
-import { requestLocale, json, readJsonWithLimit, HttpError, tr } from "./http";
+import { requestLocale, json, readJsonWithLimit, HttpError, type AppLocale } from "./http";
+import { serverText } from "./server-i18n";
 import { requireAuth } from "./auth";
 import { subscriptionRowValues, toSubscriptionRow } from "./subscriptions";
 import type { Env, SubscriptionRow } from "./types";
 
 const INSERT_SUBSCRIPTION_SQL = `
   INSERT INTO subscriptions (
-    id, user_id, name, logo, price, currency, billing_cycle, custom_days, category, status, payment_method,
+    id, user_id, name, logo, price, currency, billing_cycle, custom_days, category, status, pinned, payment_method,
     start_date, next_billing_date, auto_calculate_next_billing_date, trial_end_date, website, notes, tags_json,
     reminder_days, repeat_reminder_enabled, repeat_reminder_interval, repeat_reminder_window, extra_json, created_at, updated_at
-  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `;
 
 const UPDATE_SUBSCRIPTION_SQL = `
   UPDATE subscriptions SET
     name = ?, logo = ?, price = ?, currency = ?, billing_cycle = ?, custom_days = ?, category = ?, status = ?,
-    payment_method = ?, start_date = ?, next_billing_date = ?, auto_calculate_next_billing_date = ?,
+    pinned = ?, payment_method = ?, start_date = ?, next_billing_date = ?, auto_calculate_next_billing_date = ?,
     trial_end_date = ?, website = ?, notes = ?, tags_json = ?, reminder_days = ?, repeat_reminder_enabled = ?,
     repeat_reminder_interval = ?, repeat_reminder_window = ?, extra_json = ?, updated_at = ?
   WHERE user_id = ? AND id = ?
@@ -39,6 +41,7 @@ const IMPORT_JSON_LIMIT_BYTES = 50 * 1024 * 1024;
 const IMPORT_WARNING_LOW_CONFIDENCE_KEY = "IMPORT_WARNING_LOW_CONFIDENCE_KEY";
 const IMPORT_WARNING_LOW_CONFIDENCE_NAME_MATCHED = "IMPORT_WARNING_LOW_CONFIDENCE_NAME_MATCHED";
 
+/** 导入预览只做当前用户范围内的冲突判断，不写 D1。 */
 export async function previewImport(request: Request, env: Env): Promise<Response> {
   const locale = requestLocale(request);
   const auth = await requireAuth(request, env);
@@ -48,17 +51,19 @@ export async function previewImport(request: Request, env: Env): Promise<Respons
   return json(importPreviewResponseSchema.parse(buildPreview(body.payload, body.conflictMode, existing, body.skipIndexes)));
 }
 
+/** 应用导入会重新计算 preview，避免客户端篡改 action 结果后直接写库。 */
 export async function applyImport(request: Request, env: Env): Promise<Response> {
   const locale = requestLocale(request);
   const auth = await requireAuth(request, env);
   // apply 必须重新解析和预览请求体，不能信任浏览器上一轮 preview 的 action 结果。
   const body = await readJsonWithLimit(request, importApplyRequestSchema, locale, IMPORT_JSON_LIMIT_BYTES);
+  assertApplyPayloadSize(body.payload.subscriptions.length, locale);
   // 导入只在当前登录用户范围内查重；payload 里的来源用户仅用于 extra.import 幂等键，不能变成 owner。
   assertValidSkipIndexes(body.skipIndexes, body.payload.subscriptions.length, locale);
   const existing = await listSubscriptions(env, auth.user.id);
   const preview = buildPreview(body.payload, body.conflictMode, existing, body.skipIndexes);
   if (preview.summary.errors > 0) {
-    throw new HttpError(400, tr(locale, "导入内容存在错误", "Import payload contains errors"), "IMPORT_PREVIEW_FAILED", preview);
+    throw new HttpError(400, serverText(locale, "import.previewFailed"), "IMPORT_PREVIEW_FAILED", preview);
   }
 
   const timestamp = nowIso();
@@ -87,6 +92,7 @@ export async function applyImport(request: Request, env: Env): Promise<Response>
         row.custom_days,
         row.category,
         row.status,
+        row.pinned,
         row.payment_method,
         row.start_date,
         row.next_billing_date,
@@ -138,6 +144,12 @@ export async function applyImport(request: Request, env: Env): Promise<Response>
   return json(importApplyResponseSchema.parse({ ok: true, ...preview }));
 }
 
+function assertApplyPayloadSize(count: number, locale: AppLocale): void {
+  if (count > IMPORT_APPLY_SUBSCRIPTION_LIMIT) {
+    throw new HttpError(400, serverText(locale, "import.invalid"), "IMPORT_TOO_MANY_SUBSCRIPTIONS");
+  }
+}
+
 type PreviewResult = {
   summary: ImportSummary;
   items: ImportPreviewItem[];
@@ -169,11 +181,13 @@ function buildPreview(payload: ImportPayload, conflictMode: ImportConflictMode, 
     }
     const keyString = importKeyString(importKey);
     if (seenPayloadKeys.has(keyString)) {
+      // 同一个导入文件内部重复 sourceId 必须先失败；否则 replace 会把两条 payload 写到同一订阅上。
       errors.push("IMPORT_SOURCE_ID_DUPLICATE");
     }
     seenPayloadKeys.add(keyString);
     const { row: existingRow, fallback } = resolveExistingImportMatch(existingMatches, importKey, subscription);
     if (fallback) {
+      // Wallos display:* 是低置信桥接，只给用户 warning；真正写入仍保留原 import key 方便后续精确替换。
       warnings.push(IMPORT_WARNING_LOW_CONFIDENCE_NAME_MATCHED);
     }
     const action = errors.length > 0 ? "error" : existingRow ? (conflictMode === "replace" ? "replace" : "skip") : "create";
@@ -235,6 +249,7 @@ function addLowConfidenceExisting(matches: ExistingImportMatches, row: Subscript
   const nameKey = lowConfidenceImportName(row.name);
   if (!nameKey) return;
   if (matches.lowConfidenceByName.has(nameKey)) {
+    // 同名历史订阅不唯一时禁用名称兜底，宁可让用户手动处理，也不要误 replace。
     matches.lowConfidenceByName.set(nameKey, null);
     return;
   }
@@ -263,7 +278,7 @@ function isImportKey(value: unknown): value is ImportSubscription["extra"]["impo
 
 function assertValidSkipIndexes(indexes: number[], subscriptionCount: number, locale: ReturnType<typeof requestLocale>): void {
   if (indexes.some((index) => index < 0 || index >= subscriptionCount)) {
-    throw new HttpError(400, tr(locale, "跳过项索引无效", "Invalid skipped item index"), "IMPORT_SKIP_INDEX_INVALID");
+    throw new HttpError(400, serverText(locale, "import.skipIndexInvalid"), "IMPORT_SKIP_INDEX_INVALID");
   }
 }
 

@@ -1,3 +1,4 @@
+// 导入弹窗测试覆盖预览、apply、Logo 暂存和设置导入开关，防止批量导入状态机与 shared schema 漂移。
 import type { ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";

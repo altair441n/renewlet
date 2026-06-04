@@ -43,6 +43,7 @@ jobs:
         # 下游用 is-stable 决定 draft/prerelease 和 Cloudflare 生产部署；RC 永远不能碰 latest/生产。
         run: |
           VERSION="$(node scripts/release.mjs validate-version "${GITHUB_REF_NAME}")"
+          node scripts/release.mjs validate-package-versions "$VERSION"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           if [[ "$VERSION" == *"-rc."* ]]; then
             echo "is-stable=false" >> "$GITHUB_OUTPUT"
@@ -128,6 +129,10 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Generate Docker Hub overview
+        # Docker Hub Overview 没有 GitHub 仓库上下文；同步前必须把 README 相对链接改成外站可访问的绝对 URL。
+        run: node scripts/dockerhub-overview.mjs --ref "${GITHUB_SHA}" --output tmp/dockerhub/README.md --check
+
       - name: Update Docker Hub overview
         # docker push 只写镜像 manifest；仓库 Overview 是独立元数据，必须随官方发布显式同步。
         uses: peter-evans/dockerhub-description@v5
@@ -136,7 +141,7 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
           repository: zhiyingzzhou/renewlet
           short-description: Self-hosted subscription ledger and renewal reminders
-          readme-filepath: ./README.md
+          readme-filepath: ./tmp/dockerhub/README.md
 
   cloudflare-check:
     needs: metadata
@@ -196,7 +201,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build release body
-        # Release 正文来自人工维护的 CHANGELOG 短摘要，不把全量 git log 刷进发布页。
+        # Release 正文优先来自 docs/release-notes/vX.Y.Z-zh.md，并在顶部放英文版入口；不要把全量 git log 刷进发布页。
         run: node scripts/release.mjs release-body --version "${{ needs.metadata.outputs.version }}" > tmp-release-body.md
 
       - name: Build Docker deployment asset
@@ -223,6 +228,29 @@ jobs:
           done
           (cd tmp/release && sha256sum renewlet_${{ needs.metadata.outputs.version }}_linux_*.tar.gz > checksums.txt)
 
+      - name: Cleanup stale draft release
+        if: ${{ needs.metadata.outputs.is-stable != 'true' }}
+        uses: actions/github-script@v9.0.0
+        with:
+          script: |
+            const tag = `v${{ needs.metadata.outputs.version }}`;
+            const { owner, repo } = context.repo;
+            const releases = await github.paginate(github.rest.repos.listReleases, {
+              owner,
+              repo,
+              per_page: 100,
+            });
+
+            // RC 应直接发布为 prerelease；同 tag 残留 draft 会让 softprops 在 finalizing 撞 tag_name already_exists。
+            for (const release of releases.filter((item) => item.draft && item.tag_name === tag)) {
+              core.info(`Deleting stale draft release ${release.id} for ${tag}`);
+              await github.rest.repos.deleteRelease({
+                owner,
+                repo,
+                release_id: release.id,
+              });
+            }
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3.0.0
         with:
@@ -230,6 +258,7 @@ jobs:
           prerelease: ${{ needs.metadata.outputs.is-stable != 'true' }}
           draft: ${{ needs.metadata.outputs.is-stable == 'true' }}
           body_path: tmp-release-body.md
+          fail_on_unmatched_files: true
           files: |
             tmp/release/renewlet-docker-v${{ needs.metadata.outputs.version }}.zip
             tmp/release/renewlet_${{ needs.metadata.outputs.version }}_linux_amd64.tar.gz

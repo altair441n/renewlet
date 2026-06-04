@@ -1,3 +1,4 @@
+// 移动端设置/订阅弹窗测试覆盖 visualViewport、软键盘和 Radix 动画交界；这些问题只有真实浏览器布局能暴露。
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { expectNoHorizontalOverflow } from "./support/layout";
 import { gotoSettingsAfterHydration } from "./support/settings";
@@ -11,6 +12,7 @@ import {
 const VIEWPORT_SYNC_SETTLE_MS = 540;
 
 async function setVisualViewportVars(page: Page, height: number, offsetTop = 0) {
+  // 直接写 CSS 变量模拟 visualViewport 变化，避免测试依赖宿主系统是否真的弹出软键盘。
   await page.evaluate(({ nextHeight, nextOffsetTop }) => {
     document.documentElement.style.setProperty("--app-layout-viewport-height", "640px");
     document.documentElement.style.setProperty("--app-visual-viewport-offset-top", `${nextOffsetTop}px`);
@@ -20,6 +22,7 @@ async function setVisualViewportVars(page: Page, height: number, offsetTop = 0) 
 }
 
 async function waitForDialogLayout(dialog: Locator) {
+  // Radix 动画结束后还需要两个 rAF 等待 CSS var 参与布局，减少高度断言的亚帧抖动。
   await dialog.evaluate(async (element) => {
     await Promise.all(element.getAnimations({ subtree: false }).map((animation) => (
       animation.finished.catch(() => undefined)

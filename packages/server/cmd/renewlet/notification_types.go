@@ -219,10 +219,10 @@ type notificationTestRequest struct {
 // Settings 使用 RawMessage 是为了允许“未保存设置”临时覆盖，但真正解析仍由 settings schema 完成。
 func (r *notificationTestRequest) Validate(locale appLocale) error {
 	if _, ok := knownChannels[r.Channel]; !ok {
-		return errors.New(tr(locale, "通知渠道无效", "Invalid notification channel"))
+		return errors.New(serverText(locale, "notification.channelInvalid"))
 	}
 	if rawJSONIsNull(r.Settings) {
-		return errors.New(tr(locale, "通知设置无效", "Invalid notification settings"))
+		return errors.New(serverText(locale, "notification.settingsInvalid"))
 	}
 	return nil
 }
@@ -236,7 +236,7 @@ type notificationRunRequest struct {
 // 显式传 null settings 比省略字段更可能是调用方 bug，因此在边界拒绝。
 func (r *notificationRunRequest) Validate(locale appLocale) error {
 	if rawJSONIsNull(r.Settings) {
-		return errors.New(tr(locale, "通知设置无效", "Invalid notification settings"))
+		return errors.New(serverText(locale, "notification.settingsInvalid"))
 	}
 	return nil
 }
@@ -365,7 +365,7 @@ func defaultAppSettings() appSettings {
 		ThemeVariant:             "emerald",
 		ThemeCustomColor:         themeCustomColor{H: 160, S: 84, L: 39},
 		ShowExpired:              true,
-		Locale:                   string(localeZhCN),
+		Locale:                   string(defaultAppLocale),
 		DefaultCurrency:          "CNY",
 		ExchangeRateProvider:     "floatrates",
 		BuiltInIconSources:       defaultBuiltInIconSourceSettings(),

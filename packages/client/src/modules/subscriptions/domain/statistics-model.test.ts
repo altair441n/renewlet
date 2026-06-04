@@ -1,3 +1,4 @@
+// 统计模型测试保护金额换算、有效状态和图表分组口径，首页/统计页必须共享这些业务语义。
 import { describe, expect, it } from "vitest";
 import { DEFAULT_CUSTOM_CONFIG } from "@/types/config";
 import type { Subscription } from "@/types/subscription";
@@ -40,6 +41,7 @@ function subscription(overrides: SubscriptionOverrides): Subscription {
     repeatReminderEnabled: false,
     repeatReminderInterval: "1h",
     repeatReminderWindow: "72h",
+    pinned: false,
   };
 
   if (overrides.billingCycle === "custom") {

@@ -8,6 +8,7 @@ import {
 } from "./support/auth";
 import { expectLabelControlGap } from "./support/layout";
 
+// setup 项目负责生成后续所有 E2E 复用的管理员 storageState；若这里过早写入，会把半登录态扩散到整套测试。
 setup("install admin through Renewlet setup UI", async ({ page }) => {
   await page.goto("/setup");
   await expectRenewletSetupPage(page);

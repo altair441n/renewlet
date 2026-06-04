@@ -15,6 +15,7 @@
 import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { Shield, UserPlus } from "lucide-react";
 import { Header } from "@/components/header";
+import { AdminUsersRowsSkeleton } from "@/components/loading-skeleton";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/sonner";
 import { apiFetch, ApiError } from "@/lib/api-client";
@@ -29,6 +30,8 @@ import {
 import { authClient } from "@/lib/auth-client";
 import { getDisplayErrorMessage } from "@/lib/display-error";
 import { useI18n } from "@/i18n/I18nProvider";
+import { usePasswordChange } from "@/modules/settings/application/use-password-change";
+import { PasswordChangeDialog } from "@/modules/settings/presentation/password-change-dialog";
 import { AdminUserRow } from "./admin-user-row";
 import { CreateUserDialog, DeleteUserDialog, ResetPasswordDialog } from "./user-dialogs";
 import {
@@ -64,6 +67,8 @@ export default function AdminUsersPage() {
   const [resetPasswordErrors, setResetPasswordErrors] = useState<ResetPasswordErrors>({});
   const [deleteUserTarget, setDeleteUserTarget] = useState<AdminUser | null>(null);
   const [updatingUserIds, setUpdatingUserIds] = useState<Set<string>>(() => new Set());
+  const passwordChange = usePasswordChange();
+  const { setPasswordDialogOpen } = passwordChange;
 
   const createNameInputRef = useRef<HTMLInputElement>(null);
   const createEmailInputRef = useRef<HTMLInputElement>(null);
@@ -243,11 +248,16 @@ export default function AdminUsersPage() {
   );
 
   const openResetPasswordDialog = useCallback((user: AdminUser) => {
+    if (user.id === sessionData?.user?.id) {
+      // 当前管理员改自己的密码必须走账号改密 API，避免 admin patch 成为绕过当前密码校验的弱入口。
+      setPasswordDialogOpen(true);
+      return;
+    }
     setResetPasswordUser(user);
     setResetPassword("");
     setResetConfirmPassword("");
     setResetPasswordErrors({});
-  }, []);
+  }, [sessionData?.user?.id, setPasswordDialogOpen]);
 
   const focusFirstResetPasswordError = useCallback((errors: ResetPasswordErrors) => {
     if (errors.password) {
@@ -392,6 +402,19 @@ export default function AdminUsersPage() {
           confirmPasswordInputRef={resetConfirmPasswordInputRef}
         />
 
+        <PasswordChangeDialog
+          open={passwordChange.passwordDialogOpen}
+          onOpenChange={passwordChange.handlePasswordDialogOpenChange}
+          currentPassword={passwordChange.currentPassword}
+          onCurrentPasswordChange={passwordChange.setCurrentPassword}
+          newPassword={passwordChange.newPassword}
+          onNewPasswordChange={passwordChange.setNewPassword}
+          confirmPassword={passwordChange.confirmPassword}
+          onConfirmPasswordChange={passwordChange.setConfirmPassword}
+          isUpdating={passwordChange.isUpdatingPassword}
+          onSubmit={passwordChange.updatePassword}
+        />
+
         <DeleteUserDialog
           target={deleteUserTarget}
           updatingUserIds={updatingUserIds}
@@ -407,7 +430,7 @@ export default function AdminUsersPage() {
             <span>{t("admin.actions")}</span>
           </div>
           {isInitialLoading ? (
-            <div className="px-4 py-8 text-sm text-muted-foreground sm:px-5">{t("common.loading")}</div>
+            <AdminUsersRowsSkeleton />
           ) : (
             users.map((item) => (
               <AdminUserRow

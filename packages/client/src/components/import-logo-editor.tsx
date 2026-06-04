@@ -3,34 +3,51 @@ import { Image as ImageIcon, ImageOff, Images, Link, Loader2, RefreshCw, Search,
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { FaviconResultImage } from "@/components/favicon-result-image";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { MediaCandidateSearchPanel } from "@/components/media-candidate-search-panel";
 import { MediaCandidateViewport } from "@/components/media-candidate-viewport";
 import { MediaThumbnailButton } from "@/components/media-thumbnail-button";
 import { LogoUrlInputPanel } from "@/components/logo-url-input-panel";
+import { SubscriptionLogo } from "@/components/subscription-logo";
 import { useMediaCandidates } from "@/hooks/use-media-candidates";
 import { useUploadedLogoAssets } from "@/hooks/use-uploaded-logo-assets";
 import { dataUrlToBlob, validateImageFileForUpload } from "@/lib/upload-image";
 import { IMAGE_UPLOAD_ACCEPT, imageExtensionForMime, isIcoImageMime, isSvgImageMime, uploadMimeTypeForFile } from "@/lib/upload-constraints";
 import { useI18n } from "@/i18n/I18nProvider";
-import { cn } from "@/lib/utils";
 
 const loadImageCropDialog = () => import("@/components/image-crop-dialog");
 const LazyImageCropDialog = lazy(() => loadImageCropDialog().then((mod) => ({ default: mod.ImageCropDialog })));
 
+function CropDialogFallback() {
+  return <div className="fixed inset-0 z-50 bg-background/80" aria-hidden="true" />;
+}
+
 export interface DeferredLogoAsset {
+  /** 待导入订阅最终保存前才上传，避免用户取消导入后留下孤立私有资产。 */
   blob: Blob;
+  /** 导入确认时传给资产服务的文件名；真实对象路径仍由后端生成。 */
   filename: string;
+  /** 本地预览 URL，只能停留在导入草稿态，不能写进订阅持久化字段。 */
   previewUrl: string;
 }
 
 interface ImportLogoEditorProps {
+  /** 导入行的服务名，同时作为首次搜索的 autoQuery。 */
   name: string;
+  /** 当前远端/私有资产 Logo URL；选择本地草稿资产时会临时为空。 */
   value?: string | null | undefined;
+  /** 已 staged 本地资产的预览 URL，由导入控制器持有，避免弹层重开时丢失预览。 */
   assetPreviewUrl?: string | undefined;
+  /** 输出远端 URL 或 deferred asset；真正上传发生在导入提交阶段。 */
   onChange: (value: string | null, asset?: DeferredLogoAsset) => void;
 }
 
+/**
+ * ImportLogoEditor 为导入预览行提供 Logo 修正能力。
+ *
+ * 与普通 LogoPicker 不同，这里不能立即上传本地文件：导入批量确认前用户可能撤销整批数据，
+ * 所以组件只 stage Blob 与预览，最终由导入流程统一落库。
+ */
 export function ImportLogoEditor({ name, value, assetPreviewUrl, onChange }: ImportLogoEditorProps) {
   const { t } = useI18n();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -53,6 +70,7 @@ export function ImportLogoEditor({ name, value, assetPreviewUrl, onChange }: Imp
     search.onOpenChange(nextOpen);
     if (nextOpen) {
       setUploadError(null);
+      // 已上传资产只在用户展开编辑器时懒加载，避免导入列表每一行都打一次私有资产 API。
       void uploadedLogos.loadInitial();
       return;
     }
@@ -69,6 +87,7 @@ export function ImportLogoEditor({ name, value, assetPreviewUrl, onChange }: Imp
   const stageBlob = (blob: Blob, filename: string, previewUrl: string) => {
     setLocalPreview(previewUrl);
     setUploadError(null);
+    // 本地文件先作为 deferred asset 上抛；URL 写 null 是为了防止 data URL 被误当成已持久化 Logo。
     onChange(null, { blob, filename, previewUrl });
     handleOpenChange(false);
   };
@@ -88,6 +107,7 @@ export function ImportLogoEditor({ name, value, assetPreviewUrl, onChange }: Imp
       const result = reader.result;
       if (typeof result !== "string") return;
       if (isSvgImageMime(mimeType) || isIcoImageMime(mimeType)) {
+        // SVG/ICO 保留原始文件，避免导入页裁剪把矢量/多尺寸资源降级成单张 PNG。
         stageBlob(file, normalizedFilename(file.name, mimeType), result);
         return;
       }
@@ -139,9 +159,16 @@ export function ImportLogoEditor({ name, value, assetPreviewUrl, onChange }: Imp
                 <p className="mt-1 text-xs text-muted-foreground">{t("import.logoPreviewHint")}</p>
               </div>
               {displayedLogo ? (
-                <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={() => chooseRemote(undefined)} aria-label={t("import.logoClear")}>
-                  <ImageOff className="h-4 w-4" />
-                </Button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={() => chooseRemote(undefined)} aria-label={t("import.logoClear")}>
+                      <ImageOff className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" align="center" className="text-xs">
+                    {t("import.logoClear")}
+                  </TooltipContent>
+                </Tooltip>
               ) : null}
             </div>
 
@@ -236,7 +263,7 @@ export function ImportLogoEditor({ name, value, assetPreviewUrl, onChange }: Imp
       </Popover>
 
       {cropDialogOpen ? (
-        <Suspense fallback={null}>
+        <Suspense fallback={<CropDialogFallback />}>
           <LazyImageCropDialog
             open={cropDialogOpen}
             onOpenChange={setCropDialogOpen}
@@ -252,11 +279,7 @@ export function ImportLogoEditor({ name, value, assetPreviewUrl, onChange }: Imp
 }
 
 function LogoThumb({ src, name, className }: { src?: string | undefined; name: string; className?: string | undefined }) {
-  return (
-    <span className={cn("flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border bg-secondary/60", className)}>
-      {src ? <FaviconResultImage src={src} alt={`${name} Logo`} className="media-thumbnail-image" /> : <ImageIcon className="h-3.5 w-3.5 text-muted-foreground" />}
-    </span>
-  );
+  return <SubscriptionLogo name={name} logo={src} size="xs" className={className} />;
 }
 
 function LogoGrid({ children, empty }: { children: ReactNode; empty: string }) {

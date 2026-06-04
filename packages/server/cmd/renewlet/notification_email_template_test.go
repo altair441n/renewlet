@@ -1,7 +1,8 @@
 package main
 
+// 本文件测试 Go 邮件模板的 HTML/Text fallback、CTA、安全转义和服务端 i18n key 对齐。
+
 import (
-	"encoding/json"
 	"math"
 	"strings"
 	"testing"
@@ -57,7 +58,7 @@ func TestBuildEmailHTMLMessageRendersEnglishTestNotification(t *testing.T) {
 	body := mustBuildEmailHTML(t, settings, message)
 
 	assertContainsAll(t, body,
-		`<html lang="en">`,
+		`<html lang="en-US">`,
 		"Renewlet test notification",
 		"Channel check",
 		"Message",
@@ -253,28 +254,26 @@ func TestEmailThemesRenderWithoutTemplateCSSSanitizerFailures(t *testing.T) {
 	}
 }
 
-func TestEmailCatalogsHaveSameKeysAndNoEmptyValues(t *testing.T) {
-	zhCN := readEmailCatalogMap(t, "zh-CN")
-	enUS := readEmailCatalogMap(t, "en-US")
+func TestServerI18nCatalogsHaveSameKeysAndNoEmptyValues(t *testing.T) {
+	base := serverI18nCatalogs[defaultAppLocale]
 
-	if len(zhCN) != len(enUS) {
-		t.Fatalf("expected locale catalogs to have same key count, zh-CN=%d en-US=%d", len(zhCN), len(enUS))
-	}
-	for key, zhValue := range zhCN {
-		if strings.TrimSpace(zhValue) == "" {
-			t.Fatalf("expected zh-CN catalog key %q to be non-empty", key)
+	for locale, catalog := range serverI18nCatalogs {
+		if len(catalog) != len(base) {
+			t.Fatalf("expected locale catalogs to have same key count, %s=%d %s=%d", defaultAppLocale, len(base), locale, len(catalog))
 		}
-		enValue, ok := enUS[key]
-		if !ok {
-			t.Fatalf("expected en-US catalog to contain key %q", key)
+		for key := range base {
+			value, ok := catalog[key]
+			if !ok {
+				t.Fatalf("expected %s catalog to contain key %q", locale, key)
+			}
+			if strings.TrimSpace(value) == "" {
+				t.Fatalf("expected %s catalog key %q to be non-empty", locale, key)
+			}
 		}
-		if strings.TrimSpace(enValue) == "" {
-			t.Fatalf("expected en-US catalog key %q to be non-empty", key)
-		}
-	}
-	for key := range enUS {
-		if _, ok := zhCN[key]; !ok {
-			t.Fatalf("expected zh-CN catalog to contain key %q", key)
+		for key := range catalog {
+			if _, ok := base[key]; !ok {
+				t.Fatalf("expected %s catalog to contain key %q", defaultAppLocale, key)
+			}
 		}
 	}
 }
@@ -297,19 +296,6 @@ func mustBuildEmailHTML(t *testing.T, settings appSettings, message notification
 		t.Fatal(err)
 	}
 	return body
-}
-
-func readEmailCatalogMap(t *testing.T, locale string) map[string]string {
-	t.Helper()
-	data, err := emailTemplateFS.ReadFile("i18n/email." + locale + ".json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var catalog map[string]string
-	if err := json.Unmarshal(data, &catalog); err != nil {
-		t.Fatal(err)
-	}
-	return catalog
 }
 
 func assertContainsAll(t *testing.T, body string, parts ...string) {

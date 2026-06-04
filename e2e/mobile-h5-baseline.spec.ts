@@ -1,3 +1,4 @@
+// H5 基线 E2E 覆盖登录、设置、订阅弹窗、Logo sheet 和 Select sheet，是移动端布局回归的总闸。
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import {
   createSubscription,
@@ -352,7 +353,7 @@ test("mobile sheets keep Logo and currency search stable while typing", async ({
   expect(focusState.inputLeftInset, "Logo search input should keep visible left focus inset").toBeGreaterThan(12);
   await emptyLogoSearchInput.fill("Linear");
   await emptyLogoSearchInput.press("Enter");
-  await expect(emptyLogoSheet.getByTitle("Linear 1").first()).toBeVisible({ timeout: 10_000 });
+  await expect(emptyLogoSheet.getByRole("button", { name: /Linear 1/ }).first()).toBeVisible({ timeout: 10_000 });
   const logoSheetAfterSearch = await captureLogoSheetViewportMetrics(emptyLogoSheet, "logo-search-results");
   expect(
     Math.abs(logoSheetAfterSearch.sheetHeight - logoSheetBeforeSearch.sheetHeight),
@@ -397,7 +398,7 @@ test("mobile sheets keep Logo and currency search stable while typing", async ({
   await logoSearchInput.fill("Linear");
   await logoSearchInput.press("Enter");
   await expect(logoSearchInput).toHaveValue("Linear");
-  await expect(logoSheet.getByTitle("Linear 1").first()).toBeVisible({ timeout: 10_000 });
+  await expect(logoSheet.getByRole("button", { name: /Linear 1/ }).first()).toBeVisible({ timeout: 10_000 });
   await expectLocatorInsideViewport(page, logoSheet, "mobile logo search sheet after input");
   const editLogoScroll = await captureLogoSheetScrollMetrics(logoSheet, "logo-search-results");
   expect(editLogoScroll.scrollHeight, "edit Logo search results should overflow with many candidates").toBeGreaterThan(
@@ -480,7 +481,7 @@ test("mobile import Logo editor keeps search candidates scrollable", async ({ pa
   await expect(importLogoSheet).toHaveClass(/h5-logo-sheet/);
   await expect(importLogoSheet).toHaveClass(/h5-mobile-sheet-large/);
   await waitForSheetAnimation(importLogoSheet);
-  await expect(importLogoSheet.getByTitle("Linear 1").first()).toBeVisible({ timeout: 10_000 });
+  await expect(importLogoSheet.getByRole("button", { name: /Linear 1/ }).first()).toBeVisible({ timeout: 10_000 });
 
   const importLogoScroll = await captureLogoSheetScrollMetrics(importLogoSheet, null);
   expect(importLogoScroll.scrollHeight, "import Logo search results should overflow with many candidates").toBeGreaterThan(

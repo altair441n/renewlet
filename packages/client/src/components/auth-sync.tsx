@@ -23,6 +23,8 @@ import { usePathname, useRouter, useSearchParams } from "@/lib/router";
 import { useQueryClient } from "@tanstack/react-query";
 import { authClient } from "@/lib/auth-client";
 import { sanitizeNextPath } from "@/lib/redirect";
+import { invalidateSubscriptionsQueries } from "@/hooks/use-subscriptions";
+import { SETTINGS_QUERY_KEY } from "@/hooks/use-settings";
 
 /** 监听 Auth 状态变化，并主动刷新相关 Query 缓存。 */
 export function AuthSync() {
@@ -54,8 +56,8 @@ export function AuthSync() {
     if (previousSessionIdRef.current === sessionId) return;
     previousSessionIdRef.current = sessionId;
 
-    queryClient.invalidateQueries({ queryKey: ["subscriptions"] });
-    queryClient.invalidateQueries({ queryKey: ["settings"] });
+    invalidateSubscriptionsQueries(queryClient);
+    queryClient.invalidateQueries({ queryKey: SETTINGS_QUERY_KEY });
     queryClient.invalidateQueries({ queryKey: ["custom-config"] });
   }, [isPending, queryClient, sessionData?.session?.id]);
 

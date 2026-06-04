@@ -1,3 +1,4 @@
+// schedule 测试保护 IANA timezone 与本地 HH:mm 到 UTC instant 的转换，通知 cron 预览依赖同一口径。
 import { describe, expect, it } from "vitest";
 import { getLocalScheduleDecision } from "./schedule";
 

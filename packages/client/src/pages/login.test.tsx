@@ -1,3 +1,4 @@
+// Login 页面测试保护 setup/forgot-password 能力入口和 next 跳转清洗，不让认证页绕过公共路由契约。
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";

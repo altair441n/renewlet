@@ -1,3 +1,4 @@
+// 截断 Tooltip 测试保护测量逻辑，避免长文本未溢出时仍创建无意义 tooltip。
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";

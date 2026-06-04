@@ -2,14 +2,13 @@ package main
 
 // notification_email_template.go 渲染邮件渠道的 HTML 正文。
 //
-// 架构位置：HTML 放在 embedded .gohtml 模板，文案放在 embedded locale JSON catalog，
-// Go 只负责准备 view model。这样既能保持严格邮件客户端兼容，也避免把布局写成巨大字符串。
+// 架构位置：HTML 放在 embedded .gohtml 模板，文案来自服务端统一 catalog，
+// Go 只负责准备 view model。这样既能保持严格邮件客户端兼容，也避免邮件渠道维护第二套文案源。
 //
 // 注意： 不要把预渲染 HTML 传进模板；用户可控值必须继续交给 html/template 做上下文转义。
 import (
 	"bytes"
 	"embed"
-	"encoding/json"
 	"fmt"
 	"html/template"
 	"math"
@@ -25,18 +24,15 @@ const (
 	emailCompactTextRunes = 12000
 )
 
-// 模板与文案一起 embed，保证 Docker 单 binary 部署不依赖运行时文件路径。
+// 邮件布局独立 embed；文案来自服务端统一 catalog，避免邮件渠道成为第三套 i18n 事实源。
 //
-//go:embed templates/email/*.gohtml i18n/email.*.json
+//go:embed templates/email/*.gohtml
 var emailTemplateFS embed.FS
 
 var (
 	emailTemplateOnce sync.Once
 	emailTemplateSet  *template.Template
 	emailTemplateErr  error
-
-	emailCatalogMu    sync.Mutex
-	emailCatalogCache = map[appLocale]emailCatalog{}
 )
 
 type emailTheme struct {
@@ -145,10 +141,7 @@ func buildEmailHTMLMessage(settings appSettings, message notificationMessage) (s
 
 func buildEmailTemplateData(settings appSettings, message notificationMessage, compact bool) (emailTemplateData, error) {
 	locale := normalizeAppLocale(settings.Locale)
-	copy, err := loadEmailCatalog(locale)
-	if err != nil {
-		return emailTemplateData{}, err
-	}
+	copy := loadEmailCatalog(locale)
 	itemCount := len(message.Items)
 	hasReminderItems := itemCount > 0
 	if compact {
@@ -210,22 +203,32 @@ func emailTemplates() (*template.Template, error) {
 	return emailTemplateSet, emailTemplateErr
 }
 
-func loadEmailCatalog(locale appLocale) (emailCatalog, error) {
-	emailCatalogMu.Lock()
-	defer emailCatalogMu.Unlock()
-	if catalog, ok := emailCatalogCache[locale]; ok {
-		return catalog, nil
+func loadEmailCatalog(locale appLocale) emailCatalog {
+	return emailCatalog{
+		BrandTagline:          serverText(locale, "email.brandTagline"),
+		Generated:             serverText(locale, "email.generated"),
+		NoReminders:           serverText(locale, "email.noReminders"),
+		TestNotification:      serverText(locale, "email.testNotification"),
+		ReminderItems:         serverText(locale, "email.reminderItems"),
+		Message:               serverText(locale, "email.message"),
+		EmptyDetails:          serverText(locale, "email.emptyDetails"),
+		GeneratedAt:           serverText(locale, "email.generatedAt"),
+		Footer:                serverText(locale, "email.footer"),
+		Truncated:             serverText(locale, "email.truncated"),
+		UpcomingRenewals:      serverText(locale, "email.upcomingRenewals"),
+		TrialEnding:           serverText(locale, "email.trialEnding"),
+		Expired:               serverText(locale, "email.expired"),
+		BillingDate:           serverText(locale, "email.billingDate"),
+		TrialEnds:             serverText(locale, "email.trialEnds"),
+		ExpiredSince:          serverText(locale, "email.expiredSince"),
+		UpdateNextBillingDate: serverText(locale, "email.updateNextBillingDate"),
+		DayBefore:             serverText(locale, "email.dayBefore"),
+		DaysBefore:            serverText(locale, "email.daysBefore"),
+		RepeatEvery:           serverText(locale, "email.repeatEvery"),
+		PreheaderItems:        serverText(locale, "email.preheaderItems"),
+		CTAViewSubscriptions:  serverText(locale, "email.ctaViewSubscriptions"),
+		CTAOpenSettings:       serverText(locale, "email.ctaOpenSettings"),
 	}
-	data, err := emailTemplateFS.ReadFile(fmt.Sprintf("i18n/email.%s.json", locale))
-	if err != nil {
-		return emailCatalog{}, err
-	}
-	var catalog emailCatalog
-	if err := json.Unmarshal(data, &catalog); err != nil {
-		return emailCatalog{}, err
-	}
-	emailCatalogCache[locale] = catalog
-	return catalog, nil
 }
 
 func buildEmailTemplateGroups(items []notificationContentItem, locale appLocale, copy emailCatalog, theme emailTheme) []emailTemplateGroup {
@@ -381,15 +384,13 @@ func emailItemAccent(itemType string, theme emailTheme) emailAccent {
 }
 
 func emailHTMLLang(locale appLocale) string {
-	if locale == localeEnUS {
-		return "en"
-	}
-	return "zh-CN"
+	// HTML lang 直接跟随服务端 catalog 的 BCP 47 tag；新增语言不应再改邮件模板代码。
+	return string(locale)
 }
 
 func emailPreheader(message notificationMessage, copy emailCatalog) string {
 	if len(message.Items) > 0 {
-		return fmt.Sprintf(copy.PreheaderItems, len(message.Items))
+		return formatCatalogCopy(copy.PreheaderItems, map[string]interface{}{"count": len(message.Items)})
 	}
 	content := firstNonEmptyLine(message.Content)
 	if content != "" {
@@ -434,12 +435,16 @@ func emailItemDetail(item notificationContentItem, _ appLocale, copy emailCatalo
 		return copy.UpdateNextBillingDate
 	}
 	if item.RepeatReminder != nil && copy.RepeatEvery != "" {
-		return fmt.Sprintf(copy.RepeatEvery, repeatReminderIntervalHours(item.RepeatReminder.Interval))
+		return formatCatalogCopy(copy.RepeatEvery, map[string]interface{}{"hours": repeatReminderIntervalHours(item.RepeatReminder.Interval)})
 	}
 	if item.ReminderDays == 1 && copy.DayBefore != "" {
-		return fmt.Sprintf(copy.DayBefore, item.ReminderDays)
+		return formatCatalogCopy(copy.DayBefore, map[string]interface{}{"days": item.ReminderDays})
 	}
-	return fmt.Sprintf(copy.DaysBefore, item.ReminderDays)
+	return formatCatalogCopy(copy.DaysBefore, map[string]interface{}{"days": item.ReminderDays})
+}
+
+func formatCatalogCopy(message string, params map[string]interface{}) string {
+	return serverFormatMessage(message, params)
 }
 
 func splitEmailContentLines(input string, copy emailCatalog) []string {

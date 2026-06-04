@@ -43,6 +43,7 @@ const builtInIconSourceSettingSchema = z.object({
   enabled: z.boolean(),
   variantsEnabled: z.boolean(),
 }).strict();
+// PATCH 允许局部更新 provider 开关，但最终 settings 必须仍至少保留一个可用来源。
 const builtInIconSourceSettingPatchSchema = builtInIconSourceSettingSchema.partial().strict();
 
 export const builtInIconProviderSchema = z.enum(BUILT_IN_ICON_PROVIDERS);
@@ -114,12 +115,23 @@ const builtInIconSourcesPatchSchema = z.object({
 }).partial().strict();
 export type ApiBuiltInIconSourceSettingsPatch = BuiltInIconSourceSettingsPatch;
 
+/**
+ * 设置读取响应的完整形状。
+ *
+ * D1 读取历史 settings_json 时可用默认值补齐，但写入后的出站数据必须通过此 schema，
+ * 否则通知、图标候选和前端设置页会在不同运行面出现漂移。
+ */
 export const appSettingsSchema = z.object(appSettingsShape).strict();
 
 export const settingsResponseSchema = z.object({
   settings: appSettingsSchema,
 }).strict();
 
+/**
+ * 设置 PATCH 请求允许局部字段，但不允许未知字段。
+ *
+ * builtInIconSources 额外允许按 provider 局部更新，最终完整设置仍由 appSettingsSchema 兜底。
+ */
 export const settingsUpdateBodySchema = z.object({
   ...appSettingsShape,
   builtInIconSources: builtInIconSourcesPatchSchema,

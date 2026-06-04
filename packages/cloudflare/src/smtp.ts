@@ -1,7 +1,9 @@
 import { connect } from "cloudflare:sockets";
 import { z } from "zod";
-import { tr, type AppLocale } from "./http";
+import { type AppLocale } from "./http";
+import { serverFormat, serverText } from "./server-i18n";
 import type { ApiAppSettings } from "@renewlet/shared/schemas/settings";
+import { base64Utf8, composeEmail, dotStuff, type Mailbox, type SmtpEmail } from "./smtp-mime";
 
 const DEFAULT_EHLO_DOMAIN = "renewlet.local";
 const SUPPORTED_AUTH_METHOD = "PLAIN";
@@ -17,12 +19,6 @@ export interface SmtpConfig {
   from: string;
   replyTo: string;
   authMethod: typeof SUPPORTED_AUTH_METHOD;
-}
-
-export interface SmtpEmail {
-  to: string[];
-  subject: string;
-  text: string;
 }
 
 interface SmtpResponse {
@@ -54,18 +50,24 @@ class SmtpConnection {
     this.writer = socket.writable.getWriter() as WritableStreamDefaultWriter<Uint8Array>;
   }
 
-  async command(command: string, expectedCodes: readonly number[]): Promise<SmtpResponse> {
+  async command(command: string, expectedCodes: readonly number[], locale: AppLocale): Promise<SmtpResponse> {
     await this.writeRaw(`${command}\r\n`);
-    return await this.readResponse(expectedCodes);
+    return await this.readResponse(expectedCodes, locale);
   }
 
-  async readResponse(expectedCodes: readonly number[]): Promise<SmtpResponse> {
+  /**
+   * 读取 SMTP 多行响应。
+   *
+   * SMTP 用 `250-...` 表示还有后续行、`250 ...` 表示结束；如果只读第一行会漏掉
+   * STARTTLS/AUTH 能力，从而误判服务器安全能力。
+   */
+  async readResponse(expectedCodes: readonly number[], locale: AppLocale): Promise<SmtpResponse> {
     const lines: string[] = [];
     let code = 0;
     while (true) {
-      const line = await this.readLine();
+      const line = await this.readLine(locale);
       const match = /^(\d{3})([- ])(.*)$/.exec(line);
-      if (!match) throw new Error("Malformed SMTP response");
+      if (!match) throw new Error(serverText(locale, "smtp.malformedResponse"));
       code = Number.parseInt(match[1] ?? "0", 10);
       lines.push(match[3] ?? "");
       if (match[2] === " ") break;
@@ -75,6 +77,7 @@ class SmtpConnection {
   }
 
   async writeData(data: string): Promise<void> {
+    // DATA 阶段必须 dot-stuffing，否则正文里单独一行 "." 会被 SMTP 服务器当成邮件结束。
     await this.writeRaw(`${dotStuff(data)}\r\n.\r\n`);
   }
 
@@ -92,10 +95,10 @@ class SmtpConnection {
     await this.writer.write(this.encoder.encode(value));
   }
 
-  private async readLine(): Promise<string> {
+  private async readLine(locale: AppLocale): Promise<string> {
     while (!this.buffer.includes("\n")) {
       const result = await this.reader.read();
-      if (result.done) throw new Error("SMTP connection closed");
+      if (result.done) throw new Error(serverText(locale, "smtp.responseClosed"));
       this.buffer += this.decoder.decode(result.value, { stream: true });
     }
     const index = this.buffer.indexOf("\n");
@@ -105,8 +108,8 @@ class SmtpConnection {
   }
 }
 
+/** 将账号级设置转换为 Cloudflare SMTP 配置；部署级 SMTP secrets 不参与 Worker 邮件通知。 */
 export function notificationSmtpConfig(settings: ApiAppSettings, locale: AppLocale): SmtpConfig {
-  // Cloudflare 部署面不再接受 SMTP secrets；邮件通知必须由当前账号在设置页显式配置。
   return buildSmtpConfig(
     settings.smtpHost,
     settings.smtpPort,
@@ -120,9 +123,14 @@ export function notificationSmtpConfig(settings: ApiAppSettings, locale: AppLoca
   );
 }
 
+/**
+ * 通过 Cloudflare TCP sockets 发送 SMTP 邮件。
+ *
+ * 连接先完成 EHLO/STARTTLS，再进行 AUTH 与 DATA；失败信息会被 publicSmtpError 清洗后返回给 UI。
+ */
 export async function sendSmtpEmail(config: SmtpConfig, email: SmtpEmail, locale: AppLocale): Promise<void> {
   const to = email.to.map((item) => parseMailbox(item, locale));
-  if (to.length === 0) throw new Error(tr(locale, "收件人邮箱为空", "Recipient email is empty"));
+  if (to.length === 0) throw new Error(serverText(locale, "smtp.recipientEmpty"));
   const from = parseMailbox(config.from, locale);
   const replyTo = config.replyTo ? parseMailbox(config.replyTo, locale) : null;
   let connection = new SmtpConnection(connect(
@@ -135,16 +143,17 @@ export async function sendSmtpEmail(config: SmtpConfig, email: SmtpEmail, locale
   ));
 
   try {
-    await connection.readResponse([220]);
-    const hello = await connection.command(`EHLO ${DEFAULT_EHLO_DOMAIN}`, [250]);
+    await connection.readResponse([220], locale);
+    const hello = await connection.command(`EHLO ${DEFAULT_EHLO_DOMAIN}`, [250], locale);
     if (!config.secure) {
       if (!supportsCapability(hello, "STARTTLS")) {
-        throw new Error(tr(locale, "SMTP 服务器未声明 STARTTLS，Cloudflare 版不能明文发送邮件。", "SMTP server does not advertise STARTTLS; Cloudflare cannot send email in plaintext."));
+        throw new Error(serverText(locale, "smtp.startTlsMissing"));
       }
-      await connection.command("STARTTLS", [220]);
+      await connection.command("STARTTLS", [220], locale);
       connection = connection.upgradeTls(config.host);
     }
-    await deliverAfterTls(connection, config, email, from, to, replyTo);
+    // 认证和正文只在 TLS 建立后发送；用户配置的 SMTP 密码绝不能跑在明文 socket 上。
+    await deliverAfterTls(connection, config, email, from, to, replyTo, locale);
   } catch (error) {
     throw new Error(publicSmtpError(error, locale));
   } finally {
@@ -155,7 +164,7 @@ export async function sendSmtpEmail(config: SmtpConfig, email: SmtpEmail, locale
 export function publicSmtpError(error: unknown, locale: AppLocale): string {
   if (error instanceof SmtpProtocolError) return `SMTP ${error.code}: ${sanitizeProviderText(error.lines.join(" "))}`;
   const message = error instanceof Error ? error.message : String(error);
-  return `${tr(locale, "SMTP 发送失败", "SMTP delivery failed")}: ${sanitizeProviderText(message)}`;
+  return `${serverText(locale, "smtp.deliveryFailed")}: ${sanitizeProviderText(message)}`;
 }
 
 async function deliverAfterTls(
@@ -165,20 +174,21 @@ async function deliverAfterTls(
   from: Mailbox,
   to: Mailbox[],
   replyTo: Mailbox | null,
+  locale: AppLocale,
 ): Promise<void> {
-  const hello = await connection.command(`EHLO ${DEFAULT_EHLO_DOMAIN}`, [250]);
+  const hello = await connection.command(`EHLO ${DEFAULT_EHLO_DOMAIN}`, [250], locale);
   if (config.username) {
-    if (!supportsAuthPlain(hello)) throw new Error("SMTP server does not advertise AUTH PLAIN");
-    await connection.command(`AUTH PLAIN ${base64Utf8(`\0${config.username}\0${config.password}`)}`, [235]);
+    if (!supportsAuthPlain(hello)) throw new Error(serverText(locale, "smtp.serverAuthPlainUnsupported"));
+    await connection.command(`AUTH PLAIN ${base64Utf8(`\0${config.username}\0${config.password}`)}`, [235], locale);
   }
-  await connection.command(`MAIL FROM:<${from.address}>`, [250]);
+  await connection.command(`MAIL FROM:<${from.address}>`, [250], locale);
   for (const recipient of to) {
-    await connection.command(`RCPT TO:<${recipient.address}>`, [250, 251]);
+    await connection.command(`RCPT TO:<${recipient.address}>`, [250, 251], locale);
   }
-  await connection.command("DATA", [354]);
+  await connection.command("DATA", [354], locale);
   await connection.writeData(composeEmail(email, from, to, replyTo));
-  await connection.readResponse([250]);
-  await connection.command("QUIT", [221]).catch(() => undefined);
+  await connection.readResponse([250], locale);
+  await connection.command("QUIT", [221], locale).catch(() => undefined);
 }
 
 function buildSmtpConfig(
@@ -196,31 +206,26 @@ function buildSmtpConfig(
   const from = fromRaw.trim();
   const replyTo = replyToRaw.trim();
   if (!host || !portRaw.trim() || !from) {
-    throw new Error(tr(locale, "SMTP 邮件通知未配置完整", "SMTP email notification is incomplete"));
+    throw new Error(serverText(locale, "smtp.incomplete"));
   }
   const port = Number.parseInt(portRaw.trim(), 10);
   if (!Number.isInteger(port) || port <= 0 || port > 65_535 || String(port) !== portRaw.trim()) {
-    throw new Error(tr(locale, "SMTP 端口无效", "Invalid SMTP port"));
+    throw new Error(serverText(locale, "smtp.invalidPort"));
   }
   if (port === 25) {
     // 这是 Cloudflare 平台限制，不写进 shared schema，避免误伤 Docker/VPS 上可自行放行的部署。
-    throw new Error(tr(locale, "Cloudflare Workers 不支持 SMTP 25 端口，请改用 465、587、2525 或服务商支持的 submission 端口。", "Cloudflare Workers does not support SMTP port 25. Use 465, 587, 2525, or another provider-supported submission port."));
+    throw new Error(serverText(locale, "smtp.port25Unsupported"));
   }
   const username = usernameRaw.trim();
   const password = passwordRaw.trim();
   if (Boolean(username) !== Boolean(password)) {
-    throw new Error(tr(locale, "SMTP 用户名和密码必须同时填写", "SMTP username and password must be filled together"));
+    throw new Error(serverText(locale, "smtp.usernamePasswordTogether"));
   }
   const authMethod = authMethodRaw.trim().toUpperCase() || SUPPORTED_AUTH_METHOD;
   if (authMethod !== SUPPORTED_AUTH_METHOD) {
-    throw new Error(tr(locale, "Cloudflare 版 SMTP 目前仅支持 AUTH PLAIN。", "Cloudflare SMTP currently supports AUTH PLAIN only."));
+    throw new Error(serverText(locale, "smtp.authPlainUnsupported"));
   }
   return { host, port, secure, username, password, from, replyTo, authMethod: SUPPORTED_AUTH_METHOD };
-}
-
-interface Mailbox {
-  raw: string;
-  address: string;
 }
 
 function parseMailbox(raw: string, locale: AppLocale): Mailbox {
@@ -228,29 +233,9 @@ function parseMailbox(raw: string, locale: AppLocale): Mailbox {
   const match = /<([^<>]+)>$/.exec(trimmed);
   const address = (match?.[1] ?? trimmed).trim();
   if (!emailAddressSchema.safeParse(address).success) {
-    throw new Error(tr(locale, `邮箱地址无效：${raw}`, `Invalid email address: ${raw}`));
+    throw new Error(serverFormat(locale, "smtp.invalidMailbox", { address: raw }));
   }
   return { raw: trimmed, address };
-}
-
-function composeEmail(email: SmtpEmail, from: Mailbox, to: Mailbox[], replyTo: Mailbox | null): string {
-  const headers = [
-    `From: ${formatMailboxHeader(from)}`,
-    `To: ${to.map(formatMailboxHeader).join(", ")}`,
-    `Subject: ${encodeHeader(email.subject)}`,
-    `Date: ${new Date().toUTCString()}`,
-    "MIME-Version: 1.0",
-    "Content-Type: text/plain; charset=UTF-8",
-    "Content-Transfer-Encoding: 8bit",
-  ];
-  if (replyTo) headers.splice(2, 0, `Reply-To: ${formatMailboxHeader(replyTo)}`);
-  return `${headers.join("\r\n")}\r\n\r\n${normalizeCrlf(email.text)}`;
-}
-
-function formatMailboxHeader(mailbox: Mailbox): string {
-  const display = mailbox.raw.endsWith(">") ? mailbox.raw.slice(0, mailbox.raw.lastIndexOf("<")).trim().replace(/^"|"$/g, "") : "";
-  if (!display) return mailbox.address;
-  return `${encodeHeader(display)} <${mailbox.address}>`;
 }
 
 function supportsCapability(response: SmtpResponse, capability: string): boolean {
@@ -259,41 +244,6 @@ function supportsCapability(response: SmtpResponse, capability: string): boolean
 
 function supportsAuthPlain(response: SmtpResponse): boolean {
   return response.lines.some((line) => /^AUTH\b/i.test(line) && /\bPLAIN\b/i.test(line));
-}
-
-function parseBool(value: string | undefined, fallback: boolean): boolean {
-  const normalized = value?.trim().toLowerCase();
-  if (!normalized) return fallback;
-  if (["1", "true", "yes", "on"].includes(normalized)) return true;
-  if (["0", "false", "no", "off"].includes(normalized)) return false;
-  return fallback;
-}
-
-function normalizeCrlf(value: string): string {
-  return value.replace(/\r\n/g, "\n").replace(/\r/g, "\n").replace(/\n/g, "\r\n");
-}
-
-function dotStuff(value: string): string {
-  return normalizeCrlf(value)
-    .split("\r\n")
-    .map((line) => (line.startsWith(".") ? `.${line}` : line))
-    .join("\r\n");
-}
-
-function encodeHeader(value: string): string {
-  const safe = sanitizeHeader(value);
-  return /^[\x20-\x7E]*$/.test(safe) ? safe : `=?UTF-8?B?${base64Utf8(safe)}?=`;
-}
-
-function sanitizeHeader(value: string): string {
-  return value.replace(/[\r\n]+/g, " ").trim();
-}
-
-function base64Utf8(value: string): string {
-  const bytes = new TextEncoder().encode(value);
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary);
 }
 
 function sanitizeProviderText(value: string): string {

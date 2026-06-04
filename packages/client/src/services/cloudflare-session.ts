@@ -6,6 +6,7 @@ const CHANGE_EVENT = "renewlet:cloudflare-session-change";
 const STORAGE_VERSION = 2;
 
 export type CloudflareSessionData = SessionResponse;
+/** Cloudflare 运行面没有 PocketBase authStore，新鲜度时间戳用于控制何时重查 `/session`。 */
 export interface CloudflareSessionRecord {
   value: CloudflareSessionData;
   verifiedAt: number;
@@ -46,6 +47,11 @@ export function isCloudflareSessionFresh(record: CloudflareSessionRecord | null,
   return Boolean(record && Date.now() - record.verifiedAt < maxAgeMs);
 }
 
+/**
+ * 写入 Cloudflare session cache 并广播同 tab 状态变化。
+ *
+ * localStorage 不是安全边界，真实鉴权仍由 Worker session 表和 Bearer token 校验完成。
+ */
 export function writeCloudflareSession(
   session: CloudflareSessionData | null,
   options: { verifiedAt?: number } = {},

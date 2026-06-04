@@ -1,18 +1,15 @@
 import { z } from "zod";
-
-export type AppLocale = "zh-CN" | "en-US";
+import { DEFAULT_SERVER_I18N_LOCALE, requestLocale, serverText, type AppLocale } from "./server-i18n";
 
 const JSON_LIMIT_BYTES = 1 << 20;
 
-export function requestLocale(request: Request): AppLocale {
-  const explicit = request.headers.get("x-renewlet-locale") ?? request.headers.get("accept-language") ?? "";
-  return explicit.toLowerCase().includes("en") ? "en-US" : "zh-CN";
-}
+export { requestLocale, type AppLocale } from "./server-i18n";
 
-export function tr(locale: AppLocale, zh: string, en: string): string {
-  return locale === "en-US" ? en : zh;
-}
-
+/**
+ * json 构造 Worker API 的统一 JSON 响应。
+ *
+ * 显式 nosniff 是因为同一路径既返回 JSON 又可能处理资产/ICS，浏览器不能根据内容猜测类型。
+ */
 export function json(value: unknown, init: ResponseInit = {}): Response {
   const headers = new Headers(init.headers);
   headers.set("content-type", "application/json; charset=utf-8");
@@ -20,25 +17,31 @@ export function json(value: unknown, init: ResponseInit = {}): Response {
   return new Response(JSON.stringify(value), { ...init, headers });
 }
 
+/** ok 是无额外字段的成功响应；需要业务状态时应使用专用 response schema。 */
 export function ok(status = 200): Response {
   return json({ ok: true }, { status });
 }
 
+/** errorResponse 保持前端 ApiError 可读的 message/code/details 结构。 */
 export function errorResponse(status: number, message: string, code?: string, details?: unknown): Response {
   return json({ message, ...(code ? { code } : {}), ...(details === undefined ? {} : { details }) }, { status });
 }
 
-export function methodNotAllowed(): Response {
-  return errorResponse(405, "Method not allowed", "METHOD_NOT_ALLOWED");
+/** methodNotAllowed 使用服务端 catalog，保证未命中 route 的错误也跟随请求 locale。 */
+export function methodNotAllowed(locale: AppLocale): Response {
+  return errorResponse(405, serverText(locale, "common.methodNotAllowed"), "METHOD_NOT_ALLOWED");
 }
 
+/** privateShortCache 只用于带认证语义但可短暂复用的响应，不能套到公共 ICS 或私有资产读取上。 */
 export function privateShortCache(response: Response): Response {
   const headers = new Headers(response.headers);
   headers.set("cache-control", "private, max-age=300");
+  // 候选搜索结果带用户来源设置和认证语义；Vary Authorization 防止边缘缓存串用户。
   headers.set("vary", "Authorization");
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 
+/** 从 Authorization header 提取 Cloudflare session bearer token；Go/PocketBase token 不在这里解析。 */
 export function bearerToken(request: Request): string | null {
   const header = request.headers.get("authorization") ?? "";
   const match = /^Bearer\s+(.+)$/i.exec(header.trim());
@@ -50,6 +53,12 @@ export function pathSegments(url: URL, prefix = "/api/app"): string[] {
   return path.split("/").filter(Boolean).map((part) => decodeURIComponent(part));
 }
 
+/**
+ * 读取并校验 JSON 请求体。
+ *
+ * Worker 没有 Go decoder 的 DisallowUnknownFields，因此必须依赖传入的 strict Zod schema
+ * 在边界拒绝未知字段，并用 1MiB 上限防止 JSON API 被大 body 拖垮。
+ */
 export async function readJson<Schema extends z.ZodType>(
   request: Request,
   schema: Schema,
@@ -65,16 +74,24 @@ export async function readJsonWithLimit<Schema extends z.ZodType>(
   limitBytes: number,
 ): Promise<z.infer<Schema>> {
   const text = await readLimitedTextWithLimit(request, locale, false, limitBytes);
+  return parseJsonText(text, schema, locale);
+}
+
+function parseJsonText<Schema extends z.ZodType>(
+  text: string,
+  schema: Schema,
+  locale: AppLocale,
+): z.infer<Schema> {
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
   } catch {
-    throw new HttpError(400, tr(locale, "请求体无效", "Invalid request body"), "INVALID_JSON");
+    throw new HttpError(400, serverText(locale, "common.invalidJson"), "INVALID_JSON");
   }
   const result = schema.safeParse(parsed);
   if (!result.success) {
     // Worker API 与 Go API 一样拒绝脏 payload；前端表单错误需要 details.flatten 定位字段。
-    throw new HttpError(400, tr(locale, "请求参数无效", "Invalid request parameters"), "INVALID_PAYLOAD", result.error.flatten());
+    throw new HttpError(400, serverText(locale, "common.invalidPayload"), "INVALID_PAYLOAD", result.error.flatten());
   }
   return result.data;
 }
@@ -84,9 +101,10 @@ export async function readOptionalJson<Schema extends z.ZodType>(
   schema: Schema,
   locale: AppLocale,
 ): Promise<z.infer<Schema>> {
+  // 手动运行通知等端点允许空 body；空值仍解析成 {}，让 schema 决定默认字段而不是 route 自己补。
   const text = await readLimitedText(request, locale, true);
   if (!text) return schema.parse({});
-  return readJson(new Request(request.url, { method: request.method, body: text }), schema, locale);
+  return parseJsonText(text, schema, locale);
 }
 
 async function readLimitedText(request: Request, locale: AppLocale, allowEmpty: boolean): Promise<string> {
@@ -94,17 +112,37 @@ async function readLimitedText(request: Request, locale: AppLocale, allowEmpty: 
 }
 
 async function readLimitedTextWithLimit(request: Request, locale: AppLocale, allowEmpty: boolean, limitBytes: number): Promise<string> {
-  const text = await request.text();
-  if (!allowEmpty && text.trim() === "") {
-    throw new HttpError(400, tr(locale, "请求体无效", "Invalid request body"), "EMPTY_BODY");
+  const declaredLength = Number.parseInt(request.headers.get("content-length") ?? "", 10);
+  if (Number.isFinite(declaredLength) && declaredLength > limitBytes) {
+    throw new HttpError(413, serverText(locale, "common.requestBodyTooLarge"), "BODY_TOO_LARGE");
   }
-  if (new TextEncoder().encode(text).byteLength > limitBytes) {
-    // Workers 会先把 body 读进内存；这里给 JSON API 一道固定上限，避免配置导入类请求撑爆运行时。
-    throw new HttpError(413, tr(locale, "请求体过大", "Request body is too large"), "BODY_TOO_LARGE");
+  const text = await readRequestTextUpToLimit(request, locale, limitBytes);
+  if (!allowEmpty && text.trim() === "") {
+    throw new HttpError(400, serverText(locale, "common.emptyBody"), "EMPTY_BODY");
   }
   return text;
 }
 
+async function readRequestTextUpToLimit(request: Request, locale: AppLocale, limitBytes: number): Promise<string> {
+  const reader = request.body?.getReader();
+  if (!reader) return "";
+  const decoder = new TextDecoder();
+  let total = 0;
+  let text = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > limitBytes) {
+      await reader.cancel().catch(() => undefined);
+      throw new HttpError(413, serverText(locale, "common.requestBodyTooLarge"), "BODY_TOO_LARGE");
+    }
+    text += decoder.decode(value, { stream: true });
+  }
+  return text + decoder.decode();
+}
+
+/** 结构化 HTTP 错误；前端 ApiError 会读取 code/details 来定位表单字段或展示通用错误。 */
 export class HttpError extends Error {
   constructor(
     readonly status: number,
@@ -118,7 +156,8 @@ export class HttpError extends Error {
 }
 
 export function toResponse(error: unknown): Response {
+  // 未知异常只作为 500 返回；真正的字段级错误必须在边界处抛 HttpError，避免泄漏内部堆栈。
   if (error instanceof HttpError) return errorResponse(error.status, error.message, error.code, error.details);
-  const message = error instanceof Error ? error.message : "Internal server error";
-  return errorResponse(500, message || "Internal server error", "INTERNAL_ERROR");
+  const message = error instanceof Error ? error.message : serverText(DEFAULT_SERVER_I18N_LOCALE, "common.internalError");
+  return errorResponse(500, message || serverText(DEFAULT_SERVER_I18N_LOCALE, "common.internalError"), "INTERNAL_ERROR");
 }

@@ -6,14 +6,17 @@
  * 注意： 不要在展示层缓存密码字段，关闭弹窗时必须交给 controller 清理。
  */
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import Link from '@/components/router-link';
 import { useI18n } from '@/i18n/I18nProvider';
+import { cn } from '@/lib/utils';
 import { ExternalLink } from 'lucide-react';
+import { PasswordChangeDialog } from './password-change-dialog';
 
 export interface AccountSettingsSectionProps {
+  id?: string;
+  className?: string;
   accountEmail: string | null;
   canAccessPocketBaseAdmin: boolean;
   passwordResetEnabled: boolean;
@@ -31,6 +34,8 @@ export interface AccountSettingsSectionProps {
 }
 
 export function AccountSettingsSection({
+  id,
+  className,
   accountEmail,
   canAccessPocketBaseAdmin,
   passwordResetEnabled,
@@ -50,7 +55,7 @@ export function AccountSettingsSection({
 
   return (
     <>
-                  <section className="rounded-xl border border-border bg-card p-6">
+                  <section id={id} className={cn("rounded-xl border border-border bg-card p-6", className)}>
                     <h2 className="mb-6 text-lg font-semibold text-foreground">{t("settings.account")}</h2>
                     <div className="grid gap-6 sm:grid-cols-2">
                       <div className="grid gap-2">
@@ -116,73 +121,18 @@ export function AccountSettingsSection({
                     </div>
                   </section>
       
-                  {/* 修改密码弹窗 */}
-                  <Dialog
+                  <PasswordChangeDialog
                     open={passwordDialogOpen}
                     onOpenChange={handlePasswordDialogOpenChange}
-                  >
-                    <DialogContent className="border-border bg-card">
-                      <DialogHeader>
-                        <DialogTitle>{t("settings.passwordDialogTitle")}</DialogTitle>
-                        <DialogDescription>
-                          {t("settings.passwordDialogDescription")}
-                        </DialogDescription>
-                      </DialogHeader>
-      
-                      <div className="grid gap-4">
-                        <div className="grid gap-2">
-                          <Label htmlFor="currentPassword">{t("settings.currentPassword")}</Label>
-                          <Input
-                            id="currentPassword"
-                            type="password"
-                            value={currentPassword}
-                            onChange={(e) => setCurrentPassword(e.target.value)}
-                            placeholder={t("settings.currentPasswordPlaceholder")}
-                            className="border-border bg-secondary"
-                            autoComplete="current-password"
-                          />
-                        </div>
-                        <div className="grid gap-2">
-                          <Label htmlFor="newPassword">{t("passwordReset.newPassword")}</Label>
-                          <Input
-                            id="newPassword"
-                            type="password"
-                            value={newPassword}
-                            onChange={(e) => setNewPassword(e.target.value)}
-                            placeholder={t("settings.newPasswordPlaceholder")}
-                            className="border-border bg-secondary"
-                            autoComplete="new-password"
-                          />
-                        </div>
-                        <div className="grid gap-2">
-                          <Label htmlFor="confirmPassword">{t("passwordReset.confirmPassword")}</Label>
-                          <Input
-                            id="confirmPassword"
-                            type="password"
-                            value={confirmPassword}
-                            onChange={(e) => setConfirmPassword(e.target.value)}
-                            placeholder={t("settings.confirmPasswordPlaceholder")}
-                            className="border-border bg-secondary"
-                            autoComplete="new-password"
-                          />
-                        </div>
-                      </div>
-      
-                      <DialogFooter>
-                        <Button type="button" variant="outline" onClick={() => setPasswordDialogOpen(false)}>
-                          {t("common.cancel")}
-                        </Button>
-                        <Button
-                          type="button"
-                          onClick={updatePassword}
-                          disabled={isUpdatingPassword}
-                          className="bg-primary text-primary-foreground hover:bg-primary-glow"
-                        >
-                          {isUpdatingPassword ? t("common.saving") : t("settings.saveNewPassword")}
-                        </Button>
-                      </DialogFooter>
-                    </DialogContent>
-                  </Dialog>
+                    currentPassword={currentPassword}
+                    onCurrentPasswordChange={setCurrentPassword}
+                    newPassword={newPassword}
+                    onNewPasswordChange={setNewPassword}
+                    confirmPassword={confirmPassword}
+                    onConfirmPasswordChange={setConfirmPassword}
+                    isUpdating={isUpdatingPassword}
+                    onSubmit={updatePassword}
+                  />
       
     </>
   );

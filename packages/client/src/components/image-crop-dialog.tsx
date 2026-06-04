@@ -26,17 +26,18 @@ import { Slider } from '@/components/ui/slider';
 import { Label } from '@/components/ui/label';
 import { RotateCcw, ZoomIn } from 'lucide-react';
 import { useI18n } from '@/i18n/I18nProvider';
+import { reportClientError } from "@/lib/report-client-error";
 
 const ReactCrop = ReactCropComponent as unknown as ComponentType<ReactCropProps>;
 
 interface ImageCropDialogProps {
-  /** 弹窗是否打开。 */
+  /** 外层上传 hook 持有 open 状态，用于在关闭时废弃未完成的裁剪链路。 */
   open: boolean;
-  /** 弹窗开关回调。 */
+  /** 关闭动作只改变弹窗状态；裁剪结果必须通过 onCropComplete 显式上抛。 */
   onOpenChange: (open: boolean) => void;
-  /** 原始图片（URL 或 data URL）。 */
+  /** 原始图片通常是 FileReader data URL，不能直接进入持久化字段。 */
   imageSrc: string;
-  /** 裁剪完成回调（返回裁剪后的 data URL）。 */
+  /** 返回裁剪后的 data URL；调用方负责上传并替换为 `/api/app/assets/{id}`。 */
   onCropComplete: (croppedImage: string) => void;
   /** 可选：裁剪框宽高比（默认 1:1）。 */
   aspectRatio?: number;
@@ -238,7 +239,7 @@ export function ImageCropDialog({
       onOpenChange(false);
     } catch (error) {
       if (controller.signal.aborted) return;
-      console.error('Error cropping image:', error);
+      reportClientError(error, { source: "image-crop" });
     } finally {
       if (cropAbortRef.current === controller) cropAbortRef.current = null;
     }
@@ -264,7 +265,6 @@ export function ImageCropDialog({
         </DialogHeader>
 
         <div className="grid gap-4">
-          {/* 裁剪区域 */}
           <div className="flex justify-center bg-secondary/30 rounded-lg p-4 overflow-hidden">
             <ReactCrop
               {...(crop ? { crop } : {})}
@@ -288,9 +288,7 @@ export function ImageCropDialog({
             </ReactCrop>
           </div>
 
-          {/* 控件 */}
           <div className="grid gap-4 px-1">
-            {/* 缩放 */}
             <div className="grid gap-2">
               <div className="flex items-center justify-between">
                 <Label className="flex items-center gap-2 text-sm">
@@ -309,7 +307,6 @@ export function ImageCropDialog({
               />
             </div>
 
-            {/* 旋转 */}
             <div className="grid gap-2">
               <div className="flex items-center justify-between">
                 <Label className="flex items-center gap-2 text-sm">

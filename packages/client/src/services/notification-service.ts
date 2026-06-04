@@ -8,6 +8,7 @@ import {
 } from "@/lib/api/schemas/notifications";
 import type { AppSettings, NotificationChannel } from "@/types/subscription";
 
+/** 通知服务层集中承接历史查询、临时测试发送和手动运行，所有响应都经过 Zod schema 收窄。 */
 export const notificationService = {
   async history(status: NotificationHistoryStatusFilter, limit: number, offset: number, signal?: AbortSignal): Promise<NotificationHistoryResponse> {
     const params = new URLSearchParams({

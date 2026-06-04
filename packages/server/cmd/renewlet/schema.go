@@ -25,6 +25,7 @@ const (
 	maxSubscriptionTags          = 100
 	maxSubscriptionTagLength     = 40
 	maxSubscriptionTagsFieldSize = 16 * 1024
+	subscriptionCleanupPageSize  = 500
 )
 
 // ensureSchema 创建/修正 PocketBase collection schema。
@@ -38,7 +39,7 @@ func ensureSchema(app core.App) error {
 		return err
 	}
 	users.CreateRule = nil
-	ownerRule := "id = @request.auth.id"
+	ownerRule := "id = @request.auth.id && @request.auth.banned = false"
 	users.ListRule = types.Pointer(ownerRule)
 	users.ViewRule = types.Pointer(ownerRule)
 	users.UpdateRule = types.Pointer(ownerRule)
@@ -71,7 +72,13 @@ func ensureSchema(app core.App) error {
 	if err := ensureNotificationJobsCollection(app, users); err != nil {
 		return err
 	}
-	if err := backfillAutodates(app, "subscriptions", "settings", "custom_configs", "assets", "notification_jobs"); err != nil {
+	if err := ensureCalendarFeedsCollection(app, users); err != nil {
+		return err
+	}
+	if err := backfillAutodates(app, "subscriptions", "settings", "custom_configs", "assets", "notification_jobs", "calendar_feeds"); err != nil {
+		return err
+	}
+	if err := deleteLegacyHashOnlyCalendarFeeds(app); err != nil {
 		return err
 	}
 	return cleanupInvalidSubscriptionLogos(app)
@@ -197,26 +204,31 @@ func backfillAutodates(app core.App, names ...string) error {
 }
 
 func cleanupInvalidSubscriptionLogos(app core.App) error {
-	rows, err := app.FindAllRecords("subscriptions")
-	if err != nil {
-		return err
-	}
-	for _, record := range rows {
-		if validateOptionalLogoReference(record.GetString("logo")) == nil {
-			continue
-		}
-		// 破坏性切换只清空不再支持的持久化 Logo 形态；HTTP 外链仍是自托管 HTTP 场景的合法值。
-		record.Set("logo", "")
-		if err := app.SaveNoValidate(record); err != nil {
+	for offset := 0; ; offset += subscriptionCleanupPageSize {
+		rows, err := app.FindRecordsByFilter("subscriptions", "id != ''", "created", subscriptionCleanupPageSize, offset)
+		if err != nil {
 			return err
 		}
+		for _, record := range rows {
+			if validateOptionalLogoReference(record.GetString("logo")) == nil {
+				continue
+			}
+			// 破坏性切换只清空不再支持的持久化 Logo 形态；HTTP 外链仍是自托管 HTTP 场景的合法值。
+			record.Set("logo", "")
+			if err := app.SaveNoValidate(record); err != nil {
+				return err
+			}
+		}
+		if len(rows) < subscriptionCleanupPageSize {
+			return nil
+		}
 	}
-	return nil
 }
 
 func ownerRules(collection *core.Collection) {
-	listRule := "user = @request.auth.id"
-	createRule := "@request.auth.id != '' && user = @request.auth.id"
+	// 所有业务 collection 都以 user relation 做隔离；route 层管理员能力不能绕过这里的默认 owner 边界。
+	listRule := "user = @request.auth.id && @request.auth.banned = false"
+	createRule := "@request.auth.id != '' && @request.auth.banned = false && user = @request.auth.id"
 	collection.ListRule = types.Pointer(listRule)
 	collection.ViewRule = types.Pointer(listRule)
 	collection.CreateRule = types.Pointer(createRule)
@@ -254,6 +266,7 @@ func ensureSubscriptionsCollection(app core.App, users *core.Collection) error {
 			&core.NumberField{Name: "customDays", OnlyInt: true, Min: &minZero},
 			&core.TextField{Name: "category", Required: true, Max: 80},
 			&core.SelectField{Name: "status", Required: true, Values: []string{"trial", "active", "expired", "paused", "cancelled"}},
+			&core.BoolField{Name: "pinned"},
 			&core.TextField{Name: "paymentMethod", Max: 80},
 			&core.TextField{Name: "startDate", Required: true, Max: 10, Pattern: `^\d{4}-\d{2}-\d{2}$`},
 			&core.TextField{Name: "nextBillingDate", Required: true, Max: 10, Pattern: `^\d{4}-\d{2}-\d{2}$`},
@@ -300,6 +313,7 @@ func ensureSettingsCollection(app core.App, users *core.Collection) error {
 		if err := ensureAutodates(c); err != nil {
 			return err
 		}
+		// 每个用户只能有一份 settings；route/service 用 upsert 语义，唯一索引是并发写入的最终保护。
 		c.AddIndex("idx_settings_user_unique", true, "user", "")
 		return nil
 	})
@@ -317,6 +331,7 @@ func ensureCustomConfigsCollection(app core.App, users *core.Collection) error {
 		if err := ensureAutodates(c); err != nil {
 			return err
 		}
+		// 自定义配置与 settings 分开存储，避免大 JSON 配置保存失败时污染通知/主题等核心设置。
 		c.AddIndex("idx_custom_configs_user_unique", true, "user", "")
 		return nil
 	})
@@ -328,6 +343,7 @@ func ensureAssetsCollection(app core.App, users *core.Collection) error {
 		fields := []core.Field{
 			userRelation(users),
 			&core.SelectField{Name: "kind", Required: true, Values: []string{"logo", "icon"}},
+			// Protected 文件只能通过自定义 /api/app/assets/{id} 读取，确保每次访问都重新校验 owner。
 			&core.FileField{Name: "file", MaxSelect: 1, MaxSize: 2 * 1024 * 1024, MimeTypes: []string{"image/png", "image/jpeg", "image/webp", "image/svg+xml", "image/x-icon", "image/vnd.microsoft.icon"}, Protected: true, Required: true},
 			&core.TextField{Name: "mimeType", Max: 100},
 			&core.NumberField{Name: "sizeBytes", OnlyInt: true, Min: types.Pointer(0.0)},
@@ -368,8 +384,71 @@ func ensureNotificationJobsCollection(app core.App, users *core.Collection) erro
 		if err := ensureAutodates(c); err != nil {
 			return err
 		}
+		// 同一用户/本地日期/本地时间/时区只允许一个 job，是 cron 重试和并发 tick 的幂等锁。
 		c.AddIndex("idx_notification_jobs_user_local_date", false, "user, scheduledLocalDate", "")
 		c.AddIndex("idx_notification_jobs_user_local_time_unique", true, "user, scheduledLocalDate, scheduledLocalTime, timeZone", "")
 		return nil
 	})
+}
+
+func ensureCalendarFeedsCollection(app core.App, users *core.Collection) error {
+	return ensureCollection(app, "calendar_feeds", func(c *core.Collection) error {
+		ownerRules(c)
+		if err := upsertField(c, userRelation(users)); err != nil {
+			return err
+		}
+		if err := upsertField(c, &core.SelectField{Name: "scope", Required: true, Values: []string{"all", "subscription"}}); err != nil {
+			return err
+		}
+		if err := upsertField(c, &core.TextField{Name: "subscriptionId", Max: 128}); err != nil {
+			return err
+		}
+		// ICS 客户端无法携带 Renewlet 登录态；保存可恢复 token，换取刷新后仍可复制订阅 URL 的体验。
+		if err := upsertField(c, &core.TextField{Name: "token", Required: true, Max: 128, Pattern: `^[A-Za-z0-9_-]{43}$`}); err != nil {
+			return err
+		}
+		c.Fields.RemoveByName("tokenHash")
+		if err := ensureAutodates(c); err != nil {
+			return err
+		}
+		removeIndex(c, "idx_calendar_feeds_user_unique")
+		removeIndex(c, "idx_calendar_feeds_token_hash_unique")
+		removeIndex(c, "idx_calendar_feeds_user_subscription")
+		// token 是公开 ICS route 的 bearer secret；用户维度唯一索引保护管理端展示，token 唯一索引保护公开读取。
+		c.AddIndex("idx_calendar_feeds_user_all_unique", true, "user", "scope = 'all'")
+		c.AddIndex("idx_calendar_feeds_token_unique", true, "token", "")
+		c.AddIndex("idx_calendar_feeds_user_subscription_unique", true, "user, subscriptionId", "scope = 'subscription'")
+		return nil
+	})
+}
+
+func removeIndex(collection *core.Collection, name string) {
+	needle := "`" + name + "`"
+	indexes := collection.Indexes[:0]
+	for _, index := range collection.Indexes {
+		if !strings.Contains(index, needle) {
+			indexes = append(indexes, index)
+		}
+	}
+	collection.Indexes = indexes
+}
+
+func deleteLegacyHashOnlyCalendarFeeds(app core.App) error {
+	records, err := app.FindAllRecords("calendar_feeds")
+	if err != nil {
+		if strings.Contains(err.Error(), "no such table") {
+			return nil
+		}
+		return err
+	}
+	for _, record := range records {
+		if strings.TrimSpace(record.GetString("token")) != "" {
+			continue
+		}
+		// hash-only 旧 feed 无法反推 URL；便利优先的新模型选择删除旧记录，让用户登录后重新生成。
+		if err := app.Delete(record); err != nil {
+			return err
+		}
+	}
+	return nil
 }

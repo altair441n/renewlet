@@ -47,6 +47,7 @@ export function AdminUserRow({
   const protectedMessageId = protectionMessage ? "admin-user-" + user.id + "-protection" : undefined;
   const shouldDisableRoleAndStatus = isUpdating || isCurrentUser || isLastEnabledAdmin;
   const shouldDisableDelete = isUpdating || isCurrentUser || isLastEnabledAdmin;
+  const passwordActionLabel = isCurrentUser ? t("settings.changePassword") : t("admin.resetPassword");
 
   return (
     <div className="border-b border-border px-4 py-5 last:border-b-0 sm:px-5 lg:grid lg:grid-cols-[minmax(0,1fr)_140px_120px_260px] lg:items-center lg:gap-4 lg:py-4">
@@ -98,7 +99,7 @@ export function AdminUserRow({
             disabled={isUpdating}
             onClick={() => onResetPassword(user)}
           >
-            {t("admin.resetPassword")}
+            {passwordActionLabel}
           </Button>
           <Button
             type="button"

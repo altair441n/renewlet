@@ -70,6 +70,12 @@ export const reminderDaysSchema = z
   .max(MAX_REMINDER_DAYS)
   .refine(isValidReminderDays, "Invalid reminder days");
 
+/**
+ * 订阅写入请求的跨运行面事实来源。
+ *
+ * Go route、Cloudflare Worker 和前端表单都应接受这组字段；新增或收窄字段时必须同步
+ * PocketBase schema/hooks、D1 row 转换和前端 domain 类型，不能只改某一个运行面。
+ */
 export const subscriptionCreateBodySchema = z.object({
   name: z.string().trim().min(1).max(120),
   logo: optionalLogoReferenceSchema,
@@ -79,6 +85,7 @@ export const subscriptionCreateBodySchema = z.object({
   customDays: z.number().int().positive().nullable().optional(),
   category: z.string().trim().min(1).max(80),
   status: z.enum(SUBSCRIPTION_STATUSES),
+  pinned: z.boolean().default(false),
   paymentMethod: z.string().trim().min(1).max(80).nullable().optional(),
   startDate: dateInputSchema,
   nextBillingDate: dateInputSchema,
@@ -99,6 +106,12 @@ export const subscriptionUpdateBodySchema = subscriptionCreateBodySchema
   .partial()
   .refine((obj) => Object.keys(obj).length > 0, { message: "Empty payload" });
 
+/**
+ * 订阅读取响应的稳定 API 形状。
+ *
+ * Worker 会把 D1 snake_case/int boolean 重新映射到这里，PocketBase 记录也会在前端先收敛再解析；
+ * 这样 UI 只消费一种契约，运行面差异停留在 service/adapter 层。
+ */
 export const apiSubscriptionSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -109,6 +122,7 @@ export const apiSubscriptionSchema = z.object({
   customDays: z.number().int().optional(),
   category: z.string().min(1),
   status: z.enum(SUBSCRIPTION_STATUSES),
+  pinned: z.boolean(),
   paymentMethod: z.string().min(1).optional(),
   startDate: z.string(),
   nextBillingDate: z.string(),
@@ -126,8 +140,15 @@ export const apiSubscriptionSchema = z.object({
   updatedAt: z.string().optional(),
 }).strict();
 
+export const subscriptionsListQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+  cursor: z.string().trim().min(1).max(512).optional(),
+}).strict();
+
 export const subscriptionsListResponseSchema = z.object({
   subscriptions: z.array(apiSubscriptionSchema),
+  nextCursor: z.string().nullable(),
+  total: z.number().int().nonnegative().optional(),
 }).strict();
 
 export const subscriptionResponseSchema = z.object({
@@ -144,3 +165,4 @@ export type ApiSubscription = z.infer<typeof apiSubscriptionSchema> & {
   repeatReminderInterval: RepeatReminderInterval;
   repeatReminderWindow: RepeatReminderWindow;
 };
+export type SubscriptionsListQuery = z.infer<typeof subscriptionsListQuerySchema>;

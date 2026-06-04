@@ -12,18 +12,17 @@ import {
   useSearchParams as useReactRouterSearchParams,
 } from "react-router-dom";
 
-/** 获取当前 path，不包含 query/hash。 */
 export function usePathname(): string {
   return useLocation().pathname;
 }
 
-/** 获取当前 query 参数的只读快照。 */
+/** 返回 React Router 当前 search params 的快照；调用方不要缓存后再跨导航复用，避免 next 参数清洗读到旧值。 */
 export function useSearchParams(): URLSearchParams {
   const [params] = useReactRouterSearchParams();
   return params;
 }
 
-/** 提供项目内统一使用的命令式导航接口。 */
+/** 提供项目内统一使用的命令式导航接口；保留 Next 风格方法名是为了让共享组件迁移到 React Router 后不分叉。 */
 export function useRouter() {
   const navigate = useNavigate();
   return {

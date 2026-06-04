@@ -19,24 +19,28 @@
  * ```
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useTheme } from "@/lib/theme-provider";
+import { clearThemeModeOverride, useTheme } from "@/lib/theme-provider";
 import { useCustomConfig } from "@/contexts/CustomConfigContext";
 import { useExchangeRates } from "@/hooks/use-exchange-rates";
 import { useSettings, useUpdateSettings } from "@/hooks/use-settings";
 import { useSubscriptions } from "@/hooks/use-subscriptions";
 import { usePasswordResetAvailability } from "@/hooks/use-password-reset-availability";
+import { useCalendarFeedStatus, useCreateCalendarFeed, useDeleteCalendarFeed } from "@/hooks/use-calendar-feed";
 import { useToast } from "@/hooks/use-toast";
 import { getDisplayErrorMessage } from "@/lib/display-error";
 import { applyThemeVariant } from "@/lib/theme-variant";
+import { openValidatedWebcalUrl } from "@/shared/browser/calendar-links";
 import {
   readAppearancePendingFromStorage,
-  readCustomThemeColorFromStorageOrNull,
-  readThemeVariantFromStorage,
+  readSettingsAppearanceDraftFromStorage,
+  clearSettingsAppearanceDraftFromStorage,
   writeAppearancePendingToStorage,
   writeCustomThemeColorToStorage,
+  writeSettingsThemeModeToStorage,
   writeThemeVariantToStorage,
 } from "@/lib/theme-storage";
 import type { ExchangeRateProvider, ExchangeRates } from "@/lib/api/schemas/exchange-rates";
+import type { CalendarFeedStatus } from "@/lib/api/schemas/calendar-feed";
 import { DEFAULT_SETTINGS, type AppSettings, type NotificationChannel, type Subscription } from "@/types/subscription";
 import { normalizePaymentMethods, type ConfigItem, type CustomConfig } from "@/types/config";
 import type { CustomThemeColor, ThemeMode, ThemeVariant } from "@/types/theme";
@@ -106,17 +110,36 @@ function areJsonSnapshotsEqual(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
-function createDraftSettingsFromRemote(remoteSettings: AppSettings, themeMode: ThemeMode): AppSettings {
-  if (!readAppearancePendingFromStorage()) return remoteSettings;
-  // 外观预览先写 localStorage，远端刷新时要保留未保存预览，避免用户刚调好的主题被服务器旧值闪回。
-  const storedVariant = readThemeVariantFromStorage();
-  const storedCustomColor = readCustomThemeColorFromStorageOrNull();
+function normalizeAccountRecipientEmail(accountEmail: string | null): string {
+  const email = (accountEmail ?? "").trim();
+  return email && email.includes("@") ? email : "";
+}
+
+function createDraftSettingsFromRemote(remoteSettings: AppSettings, accountEmail: string | null): AppSettings {
+  const recipientEmail = remoteSettings.recipientEmail.trim()
+    ? remoteSettings.recipientEmail
+    : normalizeAccountRecipientEmail(accountEmail);
+  const baseSettings: AppSettings = recipientEmail && recipientEmail !== remoteSettings.recipientEmail
+    ? { ...remoteSettings, recipientEmail }
+    : remoteSettings;
+
+  if (!readAppearancePendingFromStorage()) return baseSettings;
+  // Settings 外观草稿用独立 pending 存储恢复；不能读取 Header 的本机主题偏好，否则全局切换会污染表单 dirty。
+  const appearanceDraft = readSettingsAppearanceDraftFromStorage();
   return {
-    ...remoteSettings,
-    themeMode,
-    themeVariant: storedVariant ?? remoteSettings.themeVariant,
-    themeCustomColor: storedCustomColor ?? remoteSettings.themeCustomColor,
+    ...baseSettings,
+    themeMode: appearanceDraft.themeMode ?? baseSettings.themeMode,
+    themeVariant: appearanceDraft.themeVariant ?? baseSettings.themeVariant,
+    themeCustomColor: appearanceDraft.themeCustomColor ?? baseSettings.themeCustomColor,
   };
+}
+
+function createSavedSettingsBaseline(remoteSettings: AppSettings, draftSettings: AppSettings): AppSettings {
+  if (readAppearancePendingFromStorage()) return remoteSettings;
+  // 账号邮箱自动补全属于初始化默认值；只有外观 pending 草稿才应在进页时保留为未保存改动。
+  return draftSettings.recipientEmail !== remoteSettings.recipientEmail
+    ? { ...remoteSettings, recipientEmail: draftSettings.recipientEmail }
+    : remoteSettings;
 }
 
 interface SettingsSubscriptionsQuery {
@@ -136,8 +159,22 @@ interface SettingsNotificationHistoryController {
   refetch: () => void | Promise<unknown>;
 }
 
+interface SettingsCalendarFeedController {
+  data: CalendarFeedStatus | undefined;
+  feedUrl: string | null;
+  isLoading: boolean;
+  isCreating: boolean;
+  isDeleting: boolean;
+  createOrRotate: () => Promise<void>;
+  copyUrl: () => Promise<void>;
+  openSystem: () => Promise<void>;
+  regenerate: () => Promise<void>;
+  revoke: () => Promise<void>;
+}
+
 export interface SettingsFormController {
   settings: AppSettings;
+  effectiveThemeMode: ThemeMode;
   accountEmail: string | null;
   canAccessPocketBaseAdmin: boolean;
   customConfig: CustomConfig;
@@ -171,6 +208,7 @@ export interface SettingsFormController {
   testingChannel: NotificationChannel | null;
   handleTestConnection: (channel: NotificationChannel) => void | Promise<void>;
   notificationHistory: SettingsNotificationHistoryController;
+  calendarFeed: SettingsCalendarFeedController;
   password: PasswordChangeController;
   passwordResetEnabled: boolean;
 }
@@ -178,7 +216,7 @@ export interface SettingsFormController {
 /**
  * 集中协调 Settings 页的远端状态、本地编辑态和跨模块用例。
  *
- * 注意： 这里是 Settings 页的“唯一写入口”。新增设置字段时，要同时检查：
+ * 注意： Settings 页只有这一处写入口。新增设置字段时，要同时检查：
  * settings schema、默认值、API merge 策略，以及是否应该纳入统一保存草稿。
  */
 export function useSettingsFormController(): SettingsFormController {
@@ -186,7 +224,6 @@ export function useSettingsFormController(): SettingsFormController {
   const [savedSettings, setSavedSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [customConfig, setCustomConfig] = useState<CustomConfig>(() => normalizeCustomConfig(null));
   const [savedCustomConfig, setSavedCustomConfig] = useState<CustomConfig>(() => normalizeCustomConfig(null));
-  const [hasInitializedFromRemote, setHasInitializedFromRemote] = useState(false);
   const [hasInitializedCustomConfig, setHasInitializedCustomConfig] = useState(false);
   const [monthlyBudgetError, setMonthlyBudgetError] = useState<string | null>(null);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
@@ -212,8 +249,12 @@ export function useSettingsFormController(): SettingsFormController {
   const passwordResetEnabled = usePasswordResetAvailability();
   const notificationTest = useNotificationTest(settings);
   const notificationHistory = useNotificationHistory();
+  const calendarFeedStatus = useCalendarFeedStatus();
+  const createCalendarFeed = useCreateCalendarFeed();
+  const deleteCalendarFeed = useDeleteCalendarFeed();
   const { refetch: refetchNotificationHistory } = notificationHistory;
-  const hasAutoFilledRecipientEmailRef = useRef(false);
+  const hasInitializedFromRemoteRef = useRef(false);
+  const hasResolvedDefaultRecipientEmailRef = useRef(false);
   const settingsDirtyRef = useRef(false);
   const customConfigDirtyRef = useRef(false);
 
@@ -231,6 +272,7 @@ export function useSettingsFormController(): SettingsFormController {
     [customConfig, savedCustomConfig],
   );
   const hasUnsavedChanges = settingsDirty || customConfigDirty;
+  const effectiveThemeMode: ThemeMode = theme;
 
   useEffect(() => {
     // effect 读取 ref 而不是把 draft 放入依赖，是为了在远端刷新时判断“当前是否仍可安全覆盖本地草稿”。
@@ -243,33 +285,32 @@ export function useSettingsFormController(): SettingsFormController {
   }, [customConfigDirty]);
 
   useEffect(() => {
-    // 为什么等待远端初始化后再回填邮箱：避免默认邮箱覆盖数据库里已有的收件人配置。
-    if (hasAutoFilledRecipientEmailRef.current) return;
-    if (!hasInitializedFromRemote) return;
-    const email = (accountEmail ?? "").trim();
-    if (!email || !email.includes("@")) return;
-
-    setSettings((prev) => {
-      hasAutoFilledRecipientEmailRef.current = true;
-      if (prev.recipientEmail.trim()) return prev;
-      return { ...prev, recipientEmail: email };
-    });
-  }, [accountEmail, hasInitializedFromRemote]);
-
-  useEffect(() => {
     if (!remoteSettings) return;
-    const nextDraft = createDraftSettingsFromRemote(remoteSettings, theme);
-    if (!hasInitializedFromRemote) {
-      setSavedSettings(remoteSettings);
+    // 收件人邮箱默认值必须和远端 settings 同步在同一条 effect 里生成，避免 Cloudflare session 先恢复时被下一轮远端草稿覆盖。
+    const shouldDefaultRecipientEmail = !hasResolvedDefaultRecipientEmailRef.current;
+    const nextDraft = createDraftSettingsFromRemote(
+      remoteSettings,
+      shouldDefaultRecipientEmail ? accountEmail : null,
+    );
+    const nextSavedSettings = createSavedSettingsBaseline(remoteSettings, nextDraft);
+    const hasResolvedRecipientEmail = Boolean(nextDraft.recipientEmail.trim());
+    if (!hasInitializedFromRemoteRef.current) {
+      setSavedSettings(nextSavedSettings);
       setSettings(nextDraft);
-      setHasInitializedFromRemote(true);
+      if (hasResolvedRecipientEmail) hasResolvedDefaultRecipientEmailRef.current = true;
+      hasInitializedFromRemoteRef.current = true;
       return;
     }
 
-    setSavedSettings(remoteSettings);
     // 只有本地草稿未脏时才用远端刷新覆盖，避免 React Query 背景刷新吞掉用户未保存编辑。
-    if (!settingsDirtyRef.current) setSettings(nextDraft);
-  }, [hasInitializedFromRemote, remoteSettings, theme]);
+    if (!settingsDirtyRef.current) {
+      setSavedSettings(nextSavedSettings);
+      setSettings(nextDraft);
+      if (hasResolvedRecipientEmail) hasResolvedDefaultRecipientEmailRef.current = true;
+    } else if (remoteSettings.recipientEmail.trim()) {
+      hasResolvedDefaultRecipientEmailRef.current = true;
+    }
+  }, [accountEmail, remoteSettings]);
 
   useEffect(() => {
     const normalized = normalizeCustomConfig(persistedCustomConfig);
@@ -286,11 +327,6 @@ export function useSettingsFormController(): SettingsFormController {
       setCustomConfig(normalized);
     }
   }, [hasInitializedCustomConfig, persistedCustomConfig]);
-
-  useEffect(() => {
-    if (theme !== "light" && theme !== "dark" && theme !== "system") return;
-    setSettings((prev) => (prev.themeMode === theme ? prev : { ...prev, themeMode: theme }));
-  }, [theme]);
 
   const updateSetting = useCallback(<K extends keyof AppSettings>(key: K, value: AppSettings[K]) => {
     setSettings((prev) => ({ ...prev, [key]: value }));
@@ -374,12 +410,15 @@ export function useSettingsFormController(): SettingsFormController {
   );
 
   const syncSavedPreviewState = useCallback(
-    (nextSettings: AppSettings) => {
-      setTheme(nextSettings.themeMode);
-      applyThemeVariant(nextSettings.themeVariant, nextSettings.themeCustomColor);
-      writeThemeVariantToStorage(nextSettings.themeVariant);
-      writeCustomThemeColorToStorage(nextSettings.themeCustomColor);
-      writeAppearancePendingToStorage(false);
+    (nextSettings: AppSettings, options: { syncAppearance: boolean }) => {
+      if (options.syncAppearance) {
+        clearThemeModeOverride();
+        setTheme(nextSettings.themeMode, { localOverride: false });
+        applyThemeVariant(nextSettings.themeVariant, nextSettings.themeCustomColor);
+        writeThemeVariantToStorage(nextSettings.themeVariant);
+        writeCustomThemeColorToStorage(nextSettings.themeCustomColor);
+        clearSettingsAppearanceDraftFromStorage();
+      }
       setLocale(nextSettings.locale, { persist: false, markAsSaved: true });
     },
     [setLocale, setTheme],
@@ -400,6 +439,9 @@ export function useSettingsFormController(): SettingsFormController {
     const shouldSaveSettings = settingsDirty;
     const shouldSaveCustomConfig = customConfigDirty;
     const providerChanged = settings.exchangeRateProvider !== savedSettings.exchangeRateProvider;
+    const appearanceChanged = settings.themeMode !== savedSettings.themeMode
+      || settings.themeVariant !== savedSettings.themeVariant
+      || !areJsonSnapshotsEqual(settings.themeCustomColor, savedSettings.themeCustomColor);
 
     try {
       const settingsPromise: Promise<AppSettings | null> = shouldSaveSettings
@@ -422,7 +464,7 @@ export function useSettingsFormController(): SettingsFormController {
         const saved = settingsResult.value;
         setSavedSettings(saved);
         setSettings(saved);
-        syncSavedPreviewState(saved);
+        syncSavedPreviewState(saved, { syncAppearance: appearanceChanged });
         void refetchNotificationHistory();
         if (providerChanged) {
           try {
@@ -476,6 +518,9 @@ export function useSettingsFormController(): SettingsFormController {
     refreshRates,
     saveConfig,
     savedSettings.exchangeRateProvider,
+    savedSettings.themeCustomColor,
+    savedSettings.themeMode,
+    savedSettings.themeVariant,
     settings,
     settingsDirty,
     syncSavedPreviewState,
@@ -488,7 +533,7 @@ export function useSettingsFormController(): SettingsFormController {
     setSettings(savedSettings);
     setCustomConfig(savedCustomConfig);
     setMonthlyBudgetError(null);
-    syncSavedPreviewState(savedSettings);
+    syncSavedPreviewState(savedSettings, { syncAppearance: true });
   }, [savedCustomConfig, savedSettings, syncSavedPreviewState]);
 
   const handleDefaultCurrencyChange = useCallback(
@@ -505,10 +550,100 @@ export function useSettingsFormController(): SettingsFormController {
     [updateSetting],
   );
 
+  const handleCreateCalendarFeed = useCallback(async () => {
+    try {
+      // Feed URL 是低权限 bearer secret；创建成功后由 React Query 缓存接住新 token，避免用户复制旧地址。
+      await createCalendarFeed.mutateAsync();
+      toast({
+        title: t("settings.calendarFeedGenerated"),
+        description: t("settings.calendarFeedGeneratedDescription"),
+      });
+    } catch (error) {
+      toast({
+        title: t("settings.calendarFeedFailed"),
+        description: getDisplayErrorMessage(error, t("settings.calendarFeedFailedDescription")),
+        variant: "destructive",
+      });
+    }
+  }, [createCalendarFeed, t, toast]);
+
+  const handleCopyCalendarFeedUrl = useCallback(async () => {
+    const feedUrl = calendarFeedStatus.data?.feedUrl;
+    if (!feedUrl) return;
+    try {
+      // 复制只读当前缓存中的 URL；不在点击时重新请求，避免系统剪贴板权限弹窗和网络竞态叠加。
+      await navigator.clipboard.writeText(feedUrl);
+      toast({
+        title: t("settings.calendarFeedCopied"),
+        description: t("settings.calendarFeedCopiedDescription"),
+      });
+    } catch (error) {
+      toast({
+        title: t("settings.calendarFeedCopyFailed"),
+        description: getDisplayErrorMessage(error, t("settings.calendarFeedCopyFailedDescription")),
+        variant: "destructive",
+      });
+    }
+  }, [calendarFeedStatus.data?.feedUrl, t, toast]);
+
+  const handleOpenCalendarFeedSystem = useCallback(async () => {
+    const feedUrl = calendarFeedStatus.data?.feedUrl;
+    if (!feedUrl) return;
+    try {
+      await openValidatedWebcalUrl(feedUrl);
+      toast({
+        title: t("settings.calendarFeedOpenSystemAttempted"),
+        description: t("settings.calendarFeedOpenSystemAttemptedDescription"),
+      });
+    } catch (error) {
+      toast({
+        title: t("settings.calendarFeedOpenSystemFailed"),
+        description: getDisplayErrorMessage(error, t("settings.calendarFeedOpenSystemFailedDescription")),
+        variant: "destructive",
+      });
+    }
+  }, [calendarFeedStatus.data?.feedUrl, t, toast]);
+
+  const handleRevokeCalendarFeed = useCallback(async () => {
+    try {
+      // 撤销必须立即清远端 token；前端缓存只负责让 UI 及时显示 disabled，不作为安全边界。
+      await deleteCalendarFeed.mutateAsync();
+      toast({
+        title: t("settings.calendarFeedRevoked"),
+        description: t("settings.calendarFeedRevokedDescription"),
+      });
+    } catch (error) {
+      toast({
+        title: t("settings.calendarFeedFailed"),
+        description: getDisplayErrorMessage(error, t("settings.calendarFeedRevokeFailedDescription")),
+        variant: "destructive",
+      });
+    }
+  }, [deleteCalendarFeed, t, toast]);
+
+  const handleRegenerateCalendarFeed = useCallback(async () => {
+    try {
+      // 轮换使用“先撤销后创建”，确保旧 URL 在服务端失效后才展示新 URL。
+      await deleteCalendarFeed.mutateAsync();
+      await createCalendarFeed.mutateAsync();
+      toast({
+        title: t("settings.calendarFeedRegenerated"),
+        description: t("settings.calendarFeedRegeneratedDescription"),
+      });
+    } catch (error) {
+      toast({
+        title: t("settings.calendarFeedFailed"),
+        description: getDisplayErrorMessage(error, t("settings.calendarFeedFailedDescription")),
+        variant: "destructive",
+      });
+    }
+  }, [createCalendarFeed, deleteCalendarFeed, t, toast]);
+
   const handleThemeModeChange = useCallback(
     (value: ThemeMode) => {
       updateSetting("themeMode", value);
       setTheme(value);
+      writeSettingsThemeModeToStorage(value);
       writeAppearancePendingToStorage(true);
     },
     [setTheme, updateSetting],
@@ -517,18 +652,28 @@ export function useSettingsFormController(): SettingsFormController {
   const handleThemeVariantChange = useCallback(
     (value: ThemeVariant) => {
       // 主题风格先写 DOM 再等待统一保存；这是为了让 Settings 页像控制面板一样即时反馈。
-      updateSetting("themeVariant", value);
+      setSettings((prev) => ({
+        ...prev,
+        themeMode: effectiveThemeMode,
+        themeVariant: value,
+      }));
+      writeSettingsThemeModeToStorage(effectiveThemeMode);
       applyThemeVariant(value, settings.themeCustomColor);
       writeThemeVariantToStorage(value);
       writeAppearancePendingToStorage(true);
     },
-    [settings.themeCustomColor, updateSetting],
+    [effectiveThemeMode, settings.themeCustomColor],
   );
 
   const handleThemeCustomColorChange = useCallback(
     (value: CustomThemeColor) => {
       // 自定义色只有在 custom 主题下才需要立即覆写 CSS 变量，其他主题仅保存候选值。
-      updateSetting("themeCustomColor", value);
+      setSettings((prev) => ({
+        ...prev,
+        themeMode: effectiveThemeMode,
+        themeCustomColor: value,
+      }));
+      writeSettingsThemeModeToStorage(effectiveThemeMode);
       writeCustomThemeColorToStorage(value);
       writeAppearancePendingToStorage(true);
 
@@ -536,11 +681,12 @@ export function useSettingsFormController(): SettingsFormController {
         applyThemeVariant("custom", value);
       }
     },
-    [settings.themeVariant, updateSetting],
+    [effectiveThemeMode, settings.themeVariant],
   );
 
   return {
     settings,
+    effectiveThemeMode,
     accountEmail,
     canAccessPocketBaseAdmin: accountIdentity.role === "admin" && !isCloudflareRuntime,
     customConfig,
@@ -574,6 +720,18 @@ export function useSettingsFormController(): SettingsFormController {
     testingChannel: notificationTest.testingChannel,
     handleTestConnection: notificationTest.testConnection,
     notificationHistory,
+    calendarFeed: {
+      data: calendarFeedStatus.data,
+      feedUrl: calendarFeedStatus.data?.feedUrl ?? null,
+      isLoading: calendarFeedStatus.isLoading,
+      isCreating: createCalendarFeed.isPending,
+      isDeleting: deleteCalendarFeed.isPending,
+      createOrRotate: handleCreateCalendarFeed,
+      copyUrl: handleCopyCalendarFeedUrl,
+      openSystem: handleOpenCalendarFeedSystem,
+      regenerate: handleRegenerateCalendarFeed,
+      revoke: handleRevokeCalendarFeed,
+    },
     password,
     passwordResetEnabled,
   };

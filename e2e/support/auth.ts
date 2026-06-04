@@ -4,11 +4,13 @@ export const adminEmail = "admin-e2e@example.com";
 export const adminPassword = "password123";
 export const adminStorageState = "e2e/.auth/admin.json";
 
+/** 捕获 PocketBase 默认登录响应；Cloudflare 巡检使用独立 auth setup，不复用这个判定。 */
 export function isAuthWithPasswordResponse(response: Response): boolean {
   return response.url().includes("/api/collections/users/auth-with-password") &&
     response.request().method() === "POST";
 }
 
+/** 确认空库首屏仍是 Renewlet 初始化页，而不是 PocketBase installer 后台。 */
 export async function expectRenewletSetupPage(page: Page) {
   await expect(page).toHaveURL(/\/setup$/);
   await expect(page.getByRole("heading", { name: "初始化 Renewlet" })).toBeVisible();

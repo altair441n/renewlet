@@ -1,3 +1,4 @@
+// Select primitive 测试保护桌面/移动端分流和滚动按钮隐藏策略，避免 Radix 默认行为破坏 H5 布局。
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import * as React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";

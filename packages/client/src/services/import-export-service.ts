@@ -8,11 +8,14 @@ import {
   type ImportPreviewItem,
   type ImportPreviewResponse,
 } from "@/lib/api/schemas/import-export";
-import { isCloudflareRuntime } from "./runtime";
 
 const APPLY_CHUNK_SIZE = 200;
-const APPLY_CHUNK_THRESHOLD = 400;
 
+/**
+ * 导入导出服务。
+ *
+ * preview 和 apply 都由后端重新计算冲突；前端分块只解决请求体/事务上限，不改变幂等语义。
+ */
 export const importExportService = {
   async preview(payload: ImportPayload, conflictMode: ImportConflictMode, skipIndexes: readonly number[] = []): Promise<ImportPreviewResponse> {
     return await apiFetch("/api/app/import/preview", importPreviewResponseSchema, {
@@ -31,13 +34,13 @@ export const importExportService = {
     skipIndexes: readonly number[] = [],
     onProgress?: (done: number, total: number) => void,
   ): Promise<ImportApplyResponse> {
-    if (payload.subscriptions.length <= APPLY_CHUNK_THRESHOLD && !isCloudflareRuntime) {
+    if (payload.subscriptions.length <= APPLY_CHUNK_SIZE) {
       const result = await applyImportPayload(payload, conflictMode, skipIndexes);
       onProgress?.(payload.subscriptions.length, payload.subscriptions.length);
       return result;
     }
 
-    // Cloudflare D1 batch 有单请求资源限制；大导入顺序切小包，靠 extra.import 幂等键支持失败后重试收敛。
+    // Docker 与 Cloudflare 共享 200 条 apply 上限；顺序切包靠 extra.import 幂等键支持失败后重试收敛。
     const chunks = chunkSubscriptions(payload.subscriptions, APPLY_CHUNK_SIZE);
     if (chunks.length === 0) {
       return await applyImportPayload(payload, conflictMode);
@@ -82,6 +85,7 @@ export const importExportService = {
 };
 
 async function applyImportPayload(payload: ImportPayload, conflictMode: ImportConflictMode, skipIndexes: readonly number[] = []): Promise<ImportApplyResponse> {
+  // apply 可能写入订阅、设置和自定义配置，超时放宽到导入事务可完成的范围。
   return await apiFetch("/api/app/import/apply", importApplyResponseSchema, {
     method: "POST",
     body: JSON.stringify({ payload, conflictMode, skipIndexes }),

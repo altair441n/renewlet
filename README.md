@@ -34,19 +34,24 @@ Idle memory usage is around 20-30MiB in local testing, making it comfortable for
 - Track each subscription clearly: name, logo, price, currency, billing cycle, renewal date, status, category, payment method, tags, website, and notes.
 - Understand spending: normalize costs by month and year, then review budget usage, category breakdowns, payment-method charts, and inactive-subscription savings.
 - Get renewal reminders: jobs are generated from each user's IANA time zone and local notification time, with reminder days, repeat reminders, delivery history, and failed-send retries.
+- Subscribe from calendar apps: generate a global private ICS feed URL in settings, or create an independent per-subscription feed from a subscription card or calendar detail dialog to open the system calendar subscription flow.
 - Send notifications through six channels: Telegram, Notifyx, Webhook, WeCom Bot, SMTP email, and Bark.
+- Choose subscription artwork: upload a Logo, paste an image URL, search built-in icon sources, or use favicon fallback suggestions.
 - Handle multiple currencies: choose Exchange API or FloatRates JSON Feeds, with fallback rates when remote providers are unavailable.
-- Customize your lists: categories, payment methods, and currencies can be adjusted in settings, with built-in icons for common payment methods.
+- Move subscription data in and out: export from Renewlet, import Renewlet or Wallos files, preview mapped subscriptions, and adjust Logos before saving.
+- Customize your lists: categories, statuses, payment methods, and currencies can be adjusted in settings, with built-in icons for common payment methods.
+- Adjust the app: switch languages, choose light, dark, or system themes, pick a color variant, and manage account password settings.
 - Self-host one container: React frontend, Go/PocketBase backend, SQLite data, and static assets run together, with data persisted to `data/`.
 - Deploy to Cloudflare Workers: React static assets, Worker API, D1, R2, and Cron Triggers can run without the Go/PocketBase server.
 - Mobile-web friendly: bottom navigation, subscription cards, tag-filter drawers, and settings screens are adapted for small screens.
-- Switch languages in the app: Simplified Chinese and English are supported.
 
 ## Cloudflare Workers Deploy
 
 <a href="https://deploy.workers.cloudflare.com/?url=https://github.com/zhiyingzzhou/renewlet"><img src="https://deploy.workers.cloudflare.com/button" alt="Deploy to Cloudflare"></a>
 
-[Cloudflare Workers Deploy](docs/cloudflare-workers-deploy.md)
+Click the button and follow the Cloudflare wizard for the easiest deployment path.
+
+If you want to create Cloudflare resources yourself or deploy with GitHub Actions, see [Cloudflare Workers manual deploy](docs/cloudflare-workers-deploy.md).
 
 ## Quick Deploy
 
@@ -80,17 +85,19 @@ docker compose pull
 docker compose up -d
 ```
 
-`latest` only moves on stable GitHub Releases. For production, prefer a concrete version tag such as `0.1.0`; release candidates use tags like `0.1.0-rc.1` and never update `latest`.
+For production, prefer a concrete stable version tag such as `0.1.0`.
 
 ### Upgrade
 
 Back up data and config before upgrading:
 
+If you deployed Renewlet before 2026-06-04, open the old version before upgrading and use Export subscriptions -> JSON to save `subscriptions.json`. After upgrading, import that old JSON from Import data. This file is for subscription-data migration only; keep the `.env`, `docker-compose.yml`, and `data/` backup below as well.
+
 ```bash
 tar -czf renewlet-backup-$(date +%F).tgz .env docker-compose.yml data
 ```
 
-Upgrade to a specific stable image:
+Upgrade to a specific version with Docker Compose:
 
 ```bash
 sed -i.bak 's#RENEWLET_IMAGE=.*#RENEWLET_IMAGE="zhiyingzzhou/renewlet:0.1.0"#' .env
@@ -98,6 +105,10 @@ docker compose pull
 docker compose up -d
 docker compose logs -f
 ```
+
+Official Docker release images with the current binary layout can also update from the version badge at the top of Renewlet, which opens System Update. This in-app path downloads the GitHub Release binary, verifies `checksums.txt`, replaces the runtime binary, and then asks an administrator to click **Restart now**. Older images must run `docker compose pull && docker compose up -d` once before the in-app updater becomes available.
+
+Cloudflare deployments update from your fork: click `Sync fork` / `Update branch`, wait for redeploy, and run `Cloudflare Worker` manually only if it does not start automatically. The deploy path must keep D1 migrations before Worker deploy.
 
 ### Common commands
 
@@ -126,14 +137,6 @@ Common settings live in `.env`:
 | `NOTIFICATION_SCHEDULER_ENABLED` | Enables the built-in notification scheduler. Defaults to `true`. |
 
 The full Docker environment template is in `.env.example`.
-
-## Releases
-
-Renewlet publishes stable versions from GitHub tags such as `v0.1.0`. Each stable release includes Docker Hub and GHCR images plus a `renewlet-docker-vX.Y.Z.zip` deployment package. Release candidates are published as prereleases with `rc` Docker tags and are meant for validation before a stable release.
-
-Development happens on `dev`; `main` represents the latest stable release. Release and hotfix work use `release/vX.Y.Z` and `hotfix/vX.Y.Z` branches. Pull requests and commits should follow Conventional Commits, for example `feat: add notification channel` or `fix: prevent duplicate reminders`.
-
-See [Release Process](docs/release-process.md) for the full workflow.
 
 ## Screenshots
 
@@ -174,44 +177,6 @@ See [Release Process](docs/release-process.md) for the full workflow.
     </td>
   </tr>
 </table>
-
-## Local Development
-
-Install dependencies:
-
-```bash
-pnpm install
-```
-
-Start the backend:
-
-```bash
-pnpm --dir packages/server start
-```
-
-Start the frontend:
-
-```bash
-pnpm --filter @renewlet/client dev
-```
-
-Local Vite runs at `http://localhost:5173` and proxies `/api` and `/_` to `http://127.0.0.1:3000`.
-
-Build:
-
-```bash
-pnpm build
-```
-
-Common checks:
-
-```bash
-pnpm check:file-lines
-pnpm check:deploy
-pnpm --filter @renewlet/client typecheck
-pnpm --dir packages/server test
-pnpm test:all
-```
 
 ## Contributing
 

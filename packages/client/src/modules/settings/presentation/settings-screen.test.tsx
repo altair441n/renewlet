@@ -1,145 +1,36 @@
-import { cleanup, render, screen, within } from "@testing-library/react";
+// SettingsScreen 测试保护设置页分区装配和 Cloudflare/Docker 差异入口，不验证普通控件样式。
+import { cleanup, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter, useLocation } from "react-router-dom";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { TooltipProvider } from "@/components/ui/tooltip";
-import { DEFAULT_CUSTOM_CONFIG } from "@/types/config";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   DEFAULT_SETTINGS,
   WEBHOOK_HEADERS_PLACEHOLDER,
   WEBHOOK_PAYLOAD_PLACEHOLDER,
-  type AppSettings,
-  type NotificationChannel,
 } from "@/types/subscription";
-import { SettingsScreen } from "./settings-screen";
-
-const mocks = vi.hoisted(() => ({
-  useSettingsFormController: vi.fn(),
-}));
-
-vi.mock("@/components/header", () => ({
-  Header: () => <header data-testid="header" />,
-}));
-
-vi.mock("@/modules/custom-config/presentation/config-manager-dialog", () => ({
-  ConfigManagerDialog: () => null,
-}));
-
-vi.mock("@/components/theme-selector", () => ({
-  ThemeSelector: () => null,
-}));
-
-vi.mock("@/components/ui/searchable-select", () => ({
-  SearchableSelect: ({ value }: { value: string }) => <div data-testid="searchable-select">{value}</div>,
-}));
-
-vi.mock("@/components/ui/time-picker", () => ({
-  TimePicker: () => null,
-}));
-
-vi.mock("../application/use-settings-form-controller", () => ({
-  useSettingsFormController: mocks.useSettingsFormController,
-}));
-
-function createControllerState(overrides: {
-  settings?: Partial<AppSettings>;
-  canAccessPocketBaseAdmin?: boolean;
-  testingChannel?: NotificationChannel | null;
-  isSavingSettings?: boolean;
-  hasUnsavedChanges?: boolean;
-} = {}) {
-  const fn = vi.fn();
-  return {
-    settings: {
-      ...DEFAULT_SETTINGS,
-      enabledChannels: ["email"],
-      smtpHost: "smtp.example.com",
-      smtpPort: "587",
-      smtpSecure: false,
-      smtpUser: "smtp-user",
-      smtpPassword: "smtp-password",
-      smtpFrom: "Renewlet <noreply@example.com>",
-      smtpReplyTo: "support@example.com",
-      recipientEmail: "alice@example.com",
-      ...overrides.settings,
-    },
-    accountEmail: "alice@example.com",
-    canAccessPocketBaseAdmin: overrides.canAccessPocketBaseAdmin ?? true,
-    customConfig: DEFAULT_CUSTOM_CONFIG,
-    subscriptionsQuery: { data: [] },
-    categoryUsageCount: new Map(),
-    rates: {},
-    activeRateProvider: "floatrates",
-    ratesLoading: false,
-    lastUpdated: null,
-    ratesError: null,
-    getCurrencySymbol: () => "¥",
-    updateCategories: fn,
-    updateStatuses: fn,
-    updatePaymentMethods: fn,
-    updateSetting: fn,
-    monthlyBudgetError: null,
-    handleMonthlyBudgetInputChange: fn,
-    toggleChannel: fn,
-    handleRefreshRates: fn,
-    handleUpdateCurrencies: fn,
-    hasUnsavedChanges: overrides.hasUnsavedChanges ?? false,
-    handleSaveChanges: fn,
-    handleDiscardChanges: fn,
-    handleDefaultCurrencyChange: fn,
-    handleExchangeRateProviderChange: fn,
-    handleThemeModeChange: fn,
-    handleThemeVariantChange: fn,
-    handleThemeCustomColorChange: fn,
-    testingChannel: overrides.testingChannel ?? null,
-    handleTestConnection: fn,
-    isSavingSettings: overrides.isSavingSettings ?? false,
-    notificationHistory: {
-      data: undefined,
-      isLoading: false,
-      isFetching: false,
-      error: null,
-      historyStatus: "all",
-      setStatus: fn,
-      loadMore: fn,
-      refetch: fn,
-    },
-    password: {
-      passwordDialogOpen: false,
-      setPasswordDialogOpen: fn,
-      handlePasswordDialogOpenChange: fn,
-      currentPassword: "",
-      setCurrentPassword: fn,
-      newPassword: "",
-      setNewPassword: fn,
-      confirmPassword: "",
-      setConfirmPassword: fn,
-      isUpdatingPassword: false,
-      updatePassword: fn,
-    },
-    passwordResetEnabled: true,
-  };
-}
-
-function RouteProbe() {
-  const location = useLocation();
-  return <div data-testid="route-path">{location.pathname}</div>;
-}
-
-function renderSettingsScreen(initialEntries = ["/settings"]) {
-  return render(
-    <MemoryRouter initialEntries={initialEntries}>
-      <TooltipProvider delayDuration={0}>
-        <SettingsScreen />
-      </TooltipProvider>
-      <RouteProbe />
-    </MemoryRouter>,
-  );
-}
+import {
+  createControllerState,
+  mocks,
+  renderSettingsScreen,
+} from "./settings-screen.test-utils";
 
 describe("SettingsScreen SMTP email settings", () => {
   beforeEach(() => {
+    vi.stubGlobal("matchMedia", vi.fn((query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })));
     mocks.useSettingsFormController.mockReturnValue(createControllerState());
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    window.history.replaceState(null, "", "/");
   });
 
   it("renders SMTP fields instead of Resend fields for email notifications", () => {
@@ -186,6 +77,17 @@ describe("SettingsScreen SMTP email settings", () => {
     renderSettingsScreen();
 
     expect(screen.queryByRole("link", { name: "PocketBase 后台" })).not.toBeInTheDocument();
+  });
+
+  it("passes the effective theme mode to the appearance selector", () => {
+    mocks.useSettingsFormController.mockReturnValue(createControllerState({
+      settings: { themeMode: "light" },
+      effectiveThemeMode: "dark",
+    }));
+
+    renderSettingsScreen();
+
+    expect(screen.getByTestId("theme-selector-mode")).toHaveTextContent("dark");
   });
 
   it("lets users choose FloatRates as the exchange-rate source", async () => {
@@ -250,6 +152,58 @@ describe("SettingsScreen SMTP email settings", () => {
     await user.type(input, "14");
 
     expect(controller.updateSetting).toHaveBeenLastCalledWith("notificationReminderDays", 14);
+  });
+
+  it("renders calendar subscription controls and exposes the permanent URL actions", async () => {
+    const user = userEvent.setup();
+    const controller = createControllerState({
+      calendarFeed: {
+        enabled: true,
+        feedUrl: "https://example.com/calendar/renewals.ics?token=secret",
+      },
+    });
+    mocks.useSettingsFormController.mockReturnValue(controller);
+
+    renderSettingsScreen();
+
+    expect(screen.getByRole("heading", { name: "日历订阅" })).toBeInTheDocument();
+    expect(screen.getAllByText("已启用").length).toBeGreaterThan(0);
+    expect(screen.getByLabelText("日历订阅 URL")).toHaveValue("https://example.com/calendar/renewals.ics?token=secret");
+    expect(screen.getByText("这是你的私有订阅链接；如果误分享，可以重新生成让旧链接失效。")).toBeInTheDocument();
+    const copyButton = screen.getByRole("button", { name: "复制 URL" });
+    const systemCalendarButton = screen.getByRole("button", { name: "在系统日历中订阅" });
+    expect(copyButton).toHaveClass("bg-primary");
+    expect(systemCalendarButton).not.toHaveClass("bg-primary");
+
+    await user.click(copyButton);
+    expect(controller.calendarFeed.copyUrl).toHaveBeenCalled();
+
+    await user.click(systemCalendarButton);
+    expect(controller.calendarFeed.openSystem).toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "重新生成" }));
+    const regenerateDialog = await screen.findByRole("alertdialog", { name: "重新生成日历订阅 URL？" });
+    expect(within(regenerateDialog).getByText("旧 URL 会立即失效，已经添加到日历 App 的订阅需要重新添加。")).toBeInTheDocument();
+    await user.click(within(regenerateDialog).getByRole("button", { name: "重新生成" }));
+    expect(controller.calendarFeed.regenerate).toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "撤销订阅" }));
+    expect(controller.calendarFeed.revoke).toHaveBeenCalled();
+  });
+
+  it("shows the disabled calendar feed state before URL generation", () => {
+    mocks.useSettingsFormController.mockReturnValue(createControllerState({
+      calendarFeed: { enabled: false, feedUrl: null },
+    }));
+
+    renderSettingsScreen();
+
+    expect(screen.getByRole("heading", { name: "日历订阅" })).toBeInTheDocument();
+    expect(screen.getByText("生成后可在 iOS、macOS、Android、Outlook、Thunderbird 等日历应用中通过 URL 订阅。")).toBeInTheDocument();
+    expect(screen.queryByLabelText("日历订阅 URL")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "复制 URL" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "在系统日历中订阅" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "生成订阅 URL" })).toBeInTheDocument();
   });
 
   it("uses H5 layout classes and native phone metadata for settings", () => {

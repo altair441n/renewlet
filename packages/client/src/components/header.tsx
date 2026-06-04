@@ -6,21 +6,22 @@
  * - 主题切换（dark/light）
  * - 可选：在支持的页面提供“新增订阅”入口
  *
- * 注意： Header 的主题切换只写本地 pending 状态。跨设备同步必须由 Settings 页保存完成。
+ * 注意： Header 的主题切换只代表本设备即时偏好；跨设备外观同步必须在 Settings 页保存完成。
  */
 
 import Link, { NavLink } from '@/components/router-link';
 import { useRouter } from '@/lib/router';
 import { LayoutDashboard, List, CalendarDays, BarChart3, Settings, Sun, Moon, LogOut } from 'lucide-react';
+import { useState } from 'react';
 import { cn } from '@/lib/utils';
 import type { SubscriptionDraft } from '@/types/subscription';
 import { Button } from '@/components/ui/button';
 import { useTheme } from '@/lib/theme-provider';
 import { useToast } from '@/hooks/use-toast';
 import { RenewletLogo } from '@/components/icons/renewlet-logo';
-import { writeAppearancePendingToStorage } from '@/lib/theme-storage';
 import { authClient } from '@/lib/auth-client';
 import { AddSubscriptionDialog } from '@/components/add-subscription-dialog';
+import { SystemUpdateDialog } from '@/components/system-update-dialog';
 import { useI18n } from '@/i18n/I18nProvider';
 import type { MessageKey } from '@/i18n/messages';
 
@@ -63,18 +64,16 @@ export function Header({ onAddSubscription, availableTags }: HeaderProps) {
   const { theme, setTheme } = useTheme();
   const { toast } = useToast();
   const { t } = useI18n();
+  const { data: sessionData } = authClient.useSession();
+  const [systemDialogOpen, setSystemDialogOpen] = useState(false);
+  const isAdmin = sessionData?.user.role === "admin";
 
   /**
-   * 切换明暗模式（仅本地生效）。
-   *
-   * 说明：
-   * - 这里不落库；只依赖本地 ThemeProvider 写入 localStorage
-   * - 如需落库，请在 /settings 点击“保存所有设置”
+   * Header 是全局快捷开关，只写本机偏好；账户级外观草稿必须从 Settings 页外观控件产生。
    */
   const handleToggleTheme = () => {
     const nextTheme = theme === 'dark' ? 'light' : 'dark';
     setTheme(nextTheme);
-    writeAppearancePendingToStorage(true);
   };
 
   /** 退出登录：清理本地认证会话并回到 /login。 */
@@ -130,6 +129,8 @@ export function Header({ onAddSubscription, availableTags }: HeaderProps) {
         </div>
 
         <div className="flex shrink-0 items-center gap-1 sm:gap-2">
+          {isAdmin ? <SystemUpdateDialog open={systemDialogOpen} onOpenChange={setSystemDialogOpen} /> : null}
+
           <Button
             variant="ghost"
             size="icon"

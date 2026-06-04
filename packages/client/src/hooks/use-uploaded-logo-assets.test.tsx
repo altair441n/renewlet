@@ -1,3 +1,4 @@
+// 已上传 Logo 列表测试保护分页去重和过期请求忽略，避免关闭 sheet 后旧响应复活列表状态。
 import { StrictMode, type ReactNode } from "react";
 import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";

@@ -60,6 +60,7 @@ func loadMediaResolverConfig() mediaResolverConfig {
 	if err := json.Unmarshal(appstatic.MediaResolverConfig, &config); err != nil {
 		panic("invalid embedded media resolver config: " + err.Error())
 	}
+	// 配置是 Go/前端/shared 共用的候选排序事实源；启动时失败比悄悄降级到空候选更容易定位发布错误。
 	if len(config.BuiltInProviders) == 0 || config.Search.MinReducedQueryLength <= 0 || len(config.Search.ModifierSuffixWords) == 0 || config.CandidateGroups.SearchFaviconReserve <= 0 || config.CandidateGroups.SearchFaviconReserve >= config.Limits.MaxCandidates || config.Limits.DefaultCandidates <= 0 || config.Limits.MaxCandidates <= 0 || len(config.Favicon.Providers) == 0 {
 		panic("invalid embedded media resolver config")
 	}

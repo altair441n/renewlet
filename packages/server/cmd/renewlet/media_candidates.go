@@ -1,5 +1,9 @@
 package main
 
+// media_candidates.go 提供 Docker/Go 运行面的 Logo/Icon 候选解析 API。
+//
+// 架构位置：前端、导入预览和 Cloudflare Worker 都以 shared resolver 配置为事实源；
+// Go handler 只负责认证、严格请求体、用户设置读取和响应契约收敛，不在请求路径抓取外部 HTML。
 import (
 	"net/http"
 
@@ -9,17 +13,19 @@ import (
 func mediaCandidates(e *core.RequestEvent) error {
 	locale := requestLocale(e.Request)
 	if e.Auth == nil {
-		return e.UnauthorizedError(tr(locale, "请先登录", "Please sign in first"), nil)
+		return e.UnauthorizedError(serverText(locale, "auth.loginRequired"), nil)
 	}
+	// 候选请求可批量携带导入项；严格 decoder 能阻止旧 favicon-search 形状重新混进统一入口。
 	body, err := decodeStrictJSON[mediaCandidateResolveRequest](e.Request, locale)
 	if err != nil {
-		return e.BadRequestError(validationErrorMessage(locale, "请求体无效", "Invalid request body", err), err)
+		return e.BadRequestError(validationErrorMessage(locale, "common.invalidRequestBody", err), err)
 	}
 	if retryAfter := checkMediaCandidateRateLimit(e); retryAfter > 0 {
+		// Logo 搜索容易被输入联想连续触发；按会话限流可保护服务端 CPU，同时不影响静态内置索引读取。
 		setRetryAfter(e, retryAfter)
 		return e.JSON(http.StatusTooManyRequests, rateLimitedResponse{
 			Code:    "RATE_LIMITED",
-			Message: tr(locale, "请求过于频繁，请稍后再试", "Too many requests. Please try again later"),
+			Message: serverText(locale, "rateLimit.tooManyRequests"),
 		})
 	}
 
@@ -30,7 +36,7 @@ func mediaCandidates(e *core.RequestEvent) error {
 	limit = clampInt(limit, 1, mediaResolverCfg.Limits.MaxCandidates)
 	settings, err := currentUserSettings(e.App, e.Auth, nil)
 	if err != nil {
-		return e.BadRequestError(validationErrorMessage(locale, "设置无效", "Invalid settings", err), err)
+		return e.BadRequestError(validationErrorMessage(locale, "notification.settingsInvalid", err), err)
 	}
 
 	items := make([]mediaCandidateResolveItemResponse, 0, len(body.Items))

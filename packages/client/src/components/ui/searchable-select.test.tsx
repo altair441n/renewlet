@@ -1,3 +1,4 @@
+// SearchableSelect 测试保护货币/配置下拉的搜索、禁用项和移动端 sheet 行为。
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";

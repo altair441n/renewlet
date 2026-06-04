@@ -30,7 +30,7 @@ interface SearchableSelectProps {
   contentClassName?: string;
   renderOption?: (option: SearchableSelectOption, state: { selected: boolean }) => React.ReactNode;
   renderValue?: (option: SearchableSelectOption | undefined) => React.ReactNode;
-  /** Maximum options rendered before the user starts searching. */
+  /** 未输入搜索词前最多渲染的选项数量；长货币/时区列表依赖它控制首屏开销。 */
   initialRenderLimit?: number;
   "aria-label"?: string;
 }

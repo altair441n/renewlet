@@ -1,3 +1,4 @@
+// Sonner bridge 测试保护 toast 适配层，避免旧 useToast 调用与新通知组件的参数语义分叉。
 import { act, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Toaster, toast } from "./sonner";

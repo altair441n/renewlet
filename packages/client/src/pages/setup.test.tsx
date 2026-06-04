@@ -1,3 +1,4 @@
+// Setup 页面测试保护首次管理员创建 UX；是否允许初始化仍由后端 setup route 最终裁决。
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";

@@ -14,6 +14,7 @@ import {
 setup("login to deployed Cloudflare app", async ({ page }, testInfo) => {
   const monitor = createNetworkMonitor(page);
   try {
+    // setup project 只负责获取线上 session；后续 desktop/mobile 共享 storage state，避免重复登录触发限流。
     await loginThroughCloudflareUI(page, "/");
     await expect(page.getByText("月度支出")).toBeVisible();
     await mkdir(dirname(cloudflareAuthStatePath), { recursive: true });

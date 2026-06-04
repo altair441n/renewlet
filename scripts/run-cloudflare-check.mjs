@@ -3,6 +3,10 @@
 /**
  * Cloudflare 线上巡检入口。
  *
+ * 触发时机：`pnpm test:e2e:cloudflare*` 手动或 CI 烟测调用。
+ * 前置依赖：Node 24、pnpm、Playwright 浏览器，以及本地 `cloudflare-check.env.local`
+ * 或显式传入的 RENEWLET_E2E_* 环境变量。
+ *
  * 业务意图：把部署域名和测试账号固定到本地 env 文件，避免线上验收依赖聊天记录里的临时命令。
  * 约束：shell 已显式传入的变量优先；本地文件只补缺省值，不能覆盖 CI 或人工指定的目标站点。
  */
@@ -75,6 +79,7 @@ function loadLocalEnv() {
     const entry = parseEnvLine(line);
     if (!entry) continue;
     const [key, value] = entry;
+    // shell/CI 显式变量优先，避免本地巡检文件意外覆盖生产烟测目标或只读范围。
     if (process.env[key] === undefined) {
       process.env[key] = value;
     }
@@ -116,6 +121,7 @@ function run(command, args) {
     stdio: "inherit",
   });
   if (result.error) throw result.error;
+  // 子进程退出码原样透传给 pnpm script，保证 typecheck 或 Playwright 失败不会被包装脚本吞掉。
   process.exitCode = result.status ?? 1;
   return process.exitCode;
 }
@@ -134,6 +140,7 @@ function main() {
 
   const playwrightArgs = ["test", "--config=playwright.cloudflare-check.config.ts"];
   if (args.includes("--readonly")) {
+    // 线上只读巡检必须在进入 Playwright 前收敛成 env，spec 再据此跳过临时写入/删除旅程。
     process.env.RENEWLET_E2E_WRITE_SCOPE = "readonly";
   }
   if (args.includes("--headed")) {

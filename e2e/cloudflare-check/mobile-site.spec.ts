@@ -51,6 +51,7 @@ const mobilePages: Array<{ path: string; label: string; assertReady: (page: Page
 test("mobile core pages have no horizontal overflow", async ({ page }, testInfo) => {
   const monitor = createNetworkMonitor(page);
   try {
+    // 移动巡检的主信号是布局约束；页面 ready 后立刻测 overflow，避免滚动后状态掩盖首屏问题。
     for (const target of mobilePages) {
       await page.goto(target.path);
       await target.assertReady(page);
@@ -116,6 +117,7 @@ test("mobile sheets, dialogs, and notification history stay usable", async ({ pa
 async function expectMobileActionVisibleAfterKeyboardViewportChange(page: Page, dialog: Locator) {
   await dialog.getByLabel("服务名称", { exact: true }).focus();
   await page.evaluate(() => {
+    // visual viewport 变量模拟软键盘顶起后的空间压缩，覆盖真实移动浏览器最容易丢底部按钮的场景。
     document.documentElement.style.setProperty("--app-layout-viewport-height", "640px");
     document.documentElement.style.setProperty("--app-visual-viewport-offset-top", "180px");
     document.documentElement.style.setProperty("--app-visual-viewport-offset-left", "0px");

@@ -8,16 +8,27 @@ import type { UseMediaCandidatesResult } from "@/hooks/use-media-candidates";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/i18n/I18nProvider";
 
+/** MediaCandidateSearchPanelProps 描述 Logo/Icon 候选搜索面板与上层弹层之间的状态边界。 */
 interface MediaCandidateSearchPanelProps {
+  /** `useMediaCandidates` 的完整状态机；面板只负责渲染和转发事件，不直接请求后端。 */
   search: UseMediaCandidatesResult;
+  /** 可选标题；嵌入已有标题区域的弹层会省略它。 */
   title?: string | undefined;
+  /** 搜索框占位文案，由调用方用当前 i18n 域提供。 */
   placeholder: string;
+  /** 尚未搜索时的引导文案。 */
   prompt: string;
+  /** 无候选且服务层没有错误时展示的空状态文案。 */
   notFoundLabel: string;
+  /** 可选空状态补充说明，通常用于告诉用户还可以手填 URL 或上传。 */
   notFoundHint?: string | undefined;
+  /** 当前已选 URL；用于在跨 provider 候选中保持选中态。 */
   selectedValue?: string | null | undefined;
+  /** 选择候选后由调用方决定写入表单、关闭弹层或切换 tab。 */
   onSelect: (candidate: MediaCandidate) => void;
+  /** 嵌入可关闭容器时显示关闭按钮；普通面板模式不需要。 */
   onClose?: (() => void) | undefined;
+  /** 控制缩略图和加载态密度，H5 sheet 通常使用 `sm`。 */
   size?: "sm" | "md" | undefined;
   columnsClassName?: string | undefined;
   panelClassName?: string | undefined;
@@ -55,6 +66,7 @@ export function MediaCandidateSearchPanel({
 }: MediaCandidateSearchPanelProps) {
   const { t } = useI18n();
   const hasResults = search.candidates.builtIn.length > 0 || search.candidates.favicon.length > 0;
+  // 搜索中保留已返回候选，能让 provider 图标先可选，同时继续展示“加载更多”而不是闪回空态。
   const shouldShowResultsArea = hasResults || (!search.isSearching && search.hasSearched);
 
   return (
@@ -115,6 +127,7 @@ export function MediaCandidateSearchPanel({
               size={size}
               columnsClassName={columnsClassName}
               onSelect={onSelect}
+              // 图片加载失败要反馈给 hook 的本轮屏蔽集合，避免失败 favicon 在同一次搜索里反复复活。
               onError={(candidate) => search.removeCandidate(candidate.url)}
             />
 

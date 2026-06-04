@@ -17,6 +17,11 @@ const mediaResolverFixtureSchema = z.object({
   expectedFaviconAutoAssignable: z.boolean().optional(),
 }).strict();
 
+/**
+ * mediaResolverFixtures 是跨运行面候选解析的回归样例。
+ *
+ * fixture 数据由 shared schema 校验后供测试使用，避免 Docker/Cloudflare 对同一查询返回不同排序语义。
+ */
 export const mediaResolverFixtures = z.array(mediaResolverFixtureSchema).parse(mediaResolverFixturesJson);
 
 export type MediaResolverFixture = (typeof mediaResolverFixtures)[number];

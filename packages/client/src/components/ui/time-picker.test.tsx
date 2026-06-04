@@ -1,3 +1,4 @@
+// TimePicker 测试保护本地 HH:mm 选择器的滚动和快捷值，通知时间不能退化成任意字符串。
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";

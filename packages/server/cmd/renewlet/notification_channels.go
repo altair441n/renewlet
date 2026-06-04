@@ -8,6 +8,7 @@ package main
 // 注意： Webhook、WeCom、Bark 都可能携带用户配置 URL，必须经过 SSRF/公网 HTTPS 防护后才能请求。
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -54,7 +55,7 @@ func sendToChannel(app core.App, channel string, settings appSettings, message n
 	case "bark":
 		return sendBark(settings, message)
 	default:
-		return fmt.Errorf(tr(locale, "未知通知渠道：%s", "Unknown notification channel: %s"), channel)
+		return errors.New(serverFormat(locale, "notification.channelUnknown", map[string]interface{}{"channel": channel}))
 	}
 }
 
@@ -62,11 +63,11 @@ func sendToChannel(app core.App, channel string, settings appSettings, message n
 // Telegram/网络 429 或 5xx 会短重试，其他 4xx 直接失败，避免无效配置反复打扰外部 API。
 func sendTelegram(settings appSettings, message notificationMessage) error {
 	locale := normalizeAppLocale(settings.Locale)
-	token, err := requireNonEmptyLocalized(locale, "Telegram Bot Token", settings.TelegramBotToken)
+	token, err := requireNonEmptyLocalized(locale, serverText(locale, "service.telegramBotToken"), settings.TelegramBotToken)
 	if err != nil {
 		return err
 	}
-	chatID, err := requireNonEmptyLocalized(locale, "Telegram Chat ID", settings.TelegramChatID)
+	chatID, err := requireNonEmptyLocalized(locale, serverText(locale, "service.telegramChatID"), settings.TelegramChatID)
 	if err != nil {
 		return err
 	}
@@ -100,7 +101,7 @@ func sendTelegram(settings appSettings, message notificationMessage) error {
 // sendNotifyx 发送 NotifyX 消息。
 func sendNotifyx(settings appSettings, message notificationMessage) error {
 	locale := normalizeAppLocale(settings.Locale)
-	apiKey, err := requireNonEmptyLocalized(locale, "NotifyX API Key", settings.NotifyxAPIKey)
+	apiKey, err := requireNonEmptyLocalized(locale, serverText(locale, "service.notifyxAPIKey"), settings.NotifyxAPIKey)
 	if err != nil {
 		return err
 	}
@@ -124,7 +125,7 @@ func sendNotifyx(settings appSettings, message notificationMessage) error {
 // 注意： URL 必须经过 assertSafeOutboundURL，防止 Webhook 被用作 SSRF 到内网服务。
 func sendWebhook(settings appSettings, message notificationMessage) error {
 	locale := normalizeAppLocale(settings.Locale)
-	rawURL, err := requireNonEmptyLocalized(locale, "Webhook URL", settings.WebhookURL)
+	rawURL, err := requireNonEmptyLocalized(locale, serverText(locale, "service.webhookURL"), settings.WebhookURL)
 	if err != nil {
 		return err
 	}
@@ -203,7 +204,7 @@ func sendWeChatWork(settings appSettings, message notificationMessage) error {
 		resp, err := postJSON(safeURL.String(), wechatMarkdownRequest{
 			MsgType:  "markdown",
 			Markdown: wechatMarkdownMessage{Content: content},
-		}, tr(locale, "企业微信机器人 API", "WeCom bot API"), locale)
+		}, serverText(locale, "service.wecomAPI"), locale)
 		if err != nil {
 			return err
 		}
@@ -223,7 +224,7 @@ func sendWeChatWork(settings appSettings, message notificationMessage) error {
 				Content:             content,
 				MentionedMobileList: phones,
 			},
-		}, tr(locale, "企业微信机器人 API", "WeCom bot API"), locale)
+		}, serverText(locale, "service.wecomAPI"), locale)
 		if err != nil {
 			return err
 		}
@@ -242,7 +243,7 @@ func sendBark(settings appSettings, message notificationMessage) error {
 	if err != nil {
 		return err
 	}
-	safeURL, err := assertSafeOutboundURL(parsed.String(), "Bark URL", locale)
+	safeURL, err := assertSafeOutboundURL(parsed.String(), serverText(locale, "service.barkServerURL"), locale)
 	if err != nil {
 		return err
 	}

@@ -9,6 +9,12 @@ import {
   subscriptionToExportRow,
 } from "./import-export-model";
 
+/**
+ * exportRenewletBackup 生成 Renewlet v1 ZIP 备份。
+ *
+ * data.json 是正式互导契约，manifest.json 只服务人工检查；私有资产会带认证读取后放入 assets/，
+ * settings secret 默认剔除，只有用户显式选择时才进入备份。
+ */
 export async function exportRenewletBackup(options: {
   subscriptions: readonly Subscription[];
   settings: AppSettings;

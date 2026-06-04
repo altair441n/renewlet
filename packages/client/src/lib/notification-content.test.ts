@@ -1,3 +1,4 @@
+// 通知内容测试保护前端预览与服务端通知语义一致，尤其是本地时间、重复提醒和空内容展示。
 import { describe, expect, it } from "vitest";
 import { DEFAULT_SETTINGS } from "@/types/subscription";
 import {

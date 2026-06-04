@@ -6,13 +6,12 @@
  *
  * 注意： 弹窗中的金额、周期和状态标签必须继续复用 subscription domain 常量，避免日历视图口径分叉。
  */
-import { useEffect, useState, type CSSProperties } from 'react';
+import { useState } from 'react';
 import type { Subscription, SubscriptionStatus } from '@/types/subscription';
 import { DEFAULT_NOTIFICATION_REMINDER_DAYS, INHERIT_REMINDER_DAYS, STATUS_LABELS, CYCLE_LABELS } from '@/types/subscription';
 import { Button } from '@/components/ui/button';
-import { CalendarDays, ExternalLink, Edit2, X } from 'lucide-react';
+import { CalendarDays, CalendarPlus, ExternalLink, Edit2, X } from 'lucide-react';
 import { Drawer } from 'vaul';
-import { AuthorizedImage } from '@/components/authorized-image';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { TruncatedTooltipText } from '@/components/ui/truncated-tooltip-text';
@@ -22,6 +21,8 @@ import { cn } from '@/lib/utils';
 import type { DateOnly } from '@/lib/time/date-only';
 import { getEffectiveSubscriptionStatus } from '@/modules/subscriptions/domain/subscription-status';
 import { useSettings } from '@/hooks/use-settings';
+import { AddToCalendarDialog } from '@/components/add-to-calendar-dialog';
+import { SubscriptionLogo } from '@/components/subscription-logo';
 
 const DEFAULT_LOGO_FALLBACK_COLOR = "hsl(var(--primary))";
 
@@ -33,10 +34,6 @@ const statusBadgeClassNames = {
   cancelled: "border-destructive/20 bg-destructive/10 text-destructive",
 } satisfies Record<SubscriptionStatus, string>;
 
-type LogoTileStyle = CSSProperties & {
-  "--subscription-logo-fallback": string;
-};
-
 interface CalendarSubscriptionLogoProps {
   subscription: Subscription;
   categoryColor: string | undefined;
@@ -44,36 +41,7 @@ interface CalendarSubscriptionLogoProps {
 }
 
 function CalendarSubscriptionLogo({ subscription, categoryColor, className }: CalendarSubscriptionLogoProps) {
-  const [logoLoadFailed, setLogoLoadFailed] = useState(false);
-
-  useEffect(() => {
-    setLogoLoadFailed(false);
-  }, [subscription.logo]);
-
-  const logoTileStyle: LogoTileStyle = {
-    "--subscription-logo-fallback": categoryColor ?? DEFAULT_LOGO_FALLBACK_COLOR,
-  };
-
-  return (
-    <div
-      className={cn(
-        "subscription-logo-tile flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg border text-sm font-bold",
-        className,
-      )}
-      style={logoTileStyle}
-    >
-      {subscription.logo && !logoLoadFailed ? (
-        <AuthorizedImage
-          src={subscription.logo}
-          alt={subscription.name}
-          className="subscription-logo-image h-full w-full object-contain p-1"
-          onError={() => setLogoLoadFailed(true)}
-        />
-      ) : (
-        <span className="subscription-logo-fallback">{subscription.name.slice(0, 2).toUpperCase()}</span>
-      )}
-    </div>
-  );
+  return <SubscriptionLogo name={subscription.name} logo={subscription.logo} fallbackColor={categoryColor ?? DEFAULT_LOGO_FALLBACK_COLOR} size="sm" className={className} />;
 }
 
 export interface CalendarDaySubscriptions {
@@ -99,6 +67,7 @@ export function SubscriptionDetailDialog({
   const { config } = useCustomConfig();
   const { data: settings } = useSettings();
   const { t, label, formatDateOnly, formatCurrency } = useI18n();
+  const [showAddToCalendarDialog, setShowAddToCalendarDialog] = useState(false);
   const category = subscription
     ? config.categories.find((item) => item.value === subscription.category)
     : undefined;
@@ -109,125 +78,147 @@ export function SubscriptionDetailDialog({
 
   const handleEdit = () => {
     if (subscription && onEditSubscription) {
+      // 先关闭详情再打开编辑，避免两个 Radix Dialog 抢焦点和 aria-hidden 状态。
       onOpenChange(false);
       onEditSubscription(subscription);
     }
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="border-border bg-card sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle className="text-xl font-semibold flex items-center gap-3">
-            {subscription ? (
-              <CalendarSubscriptionLogo subscription={subscription} categoryColor={categoryColor} />
-            ) : null}
-            {subscription?.name}
-          </DialogTitle>
-          <DialogDescription className="sr-only">
-            {subscription
-              ? t("calendar.detailDescription", { name: subscription.name })
-              : t("calendar.detailFallbackDescription")}
-          </DialogDescription>
-        </DialogHeader>
+    <>
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="border-border bg-card sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-semibold flex items-center gap-3">
+              {subscription ? (
+                <CalendarSubscriptionLogo subscription={subscription} categoryColor={categoryColor} />
+              ) : null}
+              {subscription?.name}
+            </DialogTitle>
+            <DialogDescription className="sr-only">
+              {subscription
+                ? t("calendar.detailDescription", { name: subscription.name })
+                : t("calendar.detailFallbackDescription")}
+            </DialogDescription>
+          </DialogHeader>
 
-        {subscription && (
-          <div className="grid gap-4">
-            <div className="flex items-center justify-between p-4 rounded-lg bg-secondary/50">
-              <div>
-                <p className="text-2xl font-bold text-foreground">
-                  {formatCurrency(subscription.price, subscription.currency)}
-                </p>
-                <p className="text-sm text-muted-foreground">
-                  {label(CYCLE_LABELS[subscription.billingCycle])}
-                </p>
-              </div>
-              <div className="text-right">
-                <Badge
-                  variant="outline"
-                  className={effectiveStatus ? statusBadgeClassNames[effectiveStatus] : undefined}
-                >
-                  {effectiveStatus ? label(STATUS_LABELS[effectiveStatus]) : null}
-                </Badge>
-              </div>
-            </div>
-
-            <div className="grid gap-3">
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">{t("calendar.category")}</span>
-                <span>{category ? label(category.labels) : subscription.category}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">{t("calendar.nextBilling")}</span>
-                <span>{formatDateOnly(subscription.nextBillingDate, "full")}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">{t("calendar.startDate")}</span>
-                <span>{formatDateOnly(subscription.startDate, "full")}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">{t("calendar.reminder")}</span>
-                <span>
-                  {subscription.reminderDays === INHERIT_REMINDER_DAYS
-                    ? t("subscription.card.reminderInherit", { days: inheritedReminderDays })
-                    : t("reminder.days", { days: subscription.reminderDays })}
-                </span>
-              </div>
-              {subscription.tags && subscription.tags.length > 0 && (
-                <div className="flex justify-between text-sm items-start">
-                  <span className="text-muted-foreground">{t("subscription.field.tags")}</span>
-                  <div className="flex flex-wrap gap-1 justify-end">
-                    {subscription.tags.map((tag) => (
-                      <Badge key={tag} variant="outline" className="text-xs">
-                        {tag}
-                      </Badge>
-                    ))}
-                  </div>
+          {subscription && (
+            <div className="grid gap-4">
+              <div className="flex items-center justify-between p-4 rounded-lg bg-secondary/50">
+                <div>
+                  <p className="text-2xl font-bold text-foreground">
+                    {formatCurrency(subscription.price, subscription.currency)}
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    {label(CYCLE_LABELS[subscription.billingCycle])}
+                  </p>
                 </div>
-              )}
-              {subscription.website && (
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">{t("subscription.field.website")}</span>
-                  <a
-                    href={subscription.website}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-primary hover:underline flex items-center gap-1"
+                <div className="text-right">
+                  <Badge
+                    variant="outline"
+                    className={effectiveStatus ? statusBadgeClassNames[effectiveStatus] : undefined}
                   >
-                    {t("calendar.visit")} <ExternalLink className="h-3 w-3" />
-                  </a>
+                    {effectiveStatus ? label(STATUS_LABELS[effectiveStatus]) : null}
+                  </Badge>
                 </div>
-              )}
-              {subscription.notes && (
-                <div className="pt-2 border-t border-border">
-                  <p className="text-sm text-muted-foreground mb-1">{t("subscription.field.notes")}</p>
-                  <p className="text-sm">{subscription.notes}</p>
-                </div>
-              )}
-            </div>
+              </div>
 
-            <div className="flex gap-3 pt-4">
-              <Button
-                variant="outline"
-                className="flex-1 border-border"
-                onClick={() => onOpenChange(false)}
-              >
-                {t("common.close")}
-              </Button>
-              {onEditSubscription && (
+              <div className="grid gap-3">
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">{t("calendar.category")}</span>
+                  <span>{category ? label(category.labels) : subscription.category}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">{t("calendar.nextBilling")}</span>
+                  <span>{formatDateOnly(subscription.nextBillingDate, "full")}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">{t("calendar.startDate")}</span>
+                  <span>{formatDateOnly(subscription.startDate, "full")}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">{t("calendar.reminder")}</span>
+                  <span>
+                    {subscription.reminderDays === INHERIT_REMINDER_DAYS
+                      ? t("subscription.card.reminderInherit", { days: inheritedReminderDays })
+                      : t("reminder.days", { days: subscription.reminderDays })}
+                  </span>
+                </div>
+                {subscription.tags && subscription.tags.length > 0 && (
+                  <div className="flex justify-between text-sm items-start">
+                    <span className="text-muted-foreground">{t("subscription.field.tags")}</span>
+                    <div className="flex flex-wrap gap-1 justify-end">
+                      {subscription.tags.map((tag) => (
+                        <Badge key={tag} variant="outline" className="text-xs">
+                          {tag}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {subscription.website && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">{t("subscription.field.website")}</span>
+                    <a
+                      href={subscription.website}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-primary hover:underline flex items-center gap-1"
+                    >
+                      {t("calendar.visit")} <ExternalLink className="h-3 w-3" />
+                    </a>
+                  </div>
+                )}
+                {subscription.notes && (
+                  <div className="pt-2 border-t border-border">
+                    <p className="text-sm text-muted-foreground mb-1">{t("subscription.field.notes")}</p>
+                    <p className="text-sm">{subscription.notes}</p>
+                  </div>
+                )}
+              </div>
+
+              <div className={cn("grid gap-2 pt-4", onEditSubscription ? "sm:grid-cols-[1fr_1.35fr_1fr]" : "sm:grid-cols-2")}>
                 <Button
-                  className="flex-1 bg-primary text-primary-foreground hover:bg-primary-glow"
-                  onClick={handleEdit}
+                  variant="outline"
+                  className="border-border"
+                  onClick={() => onOpenChange(false)}
                 >
-                  <Edit2 className="h-4 w-4 mr-2" />
-                  {t("common.edit")}
+                  {t("common.close")}
                 </Button>
-              )}
+                <Button
+                  variant="outline"
+                  className="border-border"
+                  onClick={() => {
+                    // AddToCalendarDialog 自己持有 token mutation 状态；详情弹窗关闭后仍传入当前订阅快照。
+                    setShowAddToCalendarDialog(true);
+                    onOpenChange(false);
+                  }}
+                >
+                  <CalendarPlus className="h-4 w-4" />
+                  {t("subscription.addToCalendar")}
+                </Button>
+                {onEditSubscription && (
+                  <Button
+                    className="bg-primary text-primary-foreground hover:bg-primary-glow"
+                    onClick={handleEdit}
+                  >
+                    <Edit2 className="h-4 w-4" />
+                    {t("common.edit")}
+                  </Button>
+                )}
+              </div>
             </div>
-          </div>
-        )}
-      </DialogContent>
-    </Dialog>
+          )}
+        </DialogContent>
+      </Dialog>
+      {showAddToCalendarDialog && (
+        <AddToCalendarDialog
+          open={showAddToCalendarDialog}
+          onOpenChange={setShowAddToCalendarDialog}
+          subscription={subscription}
+        />
+      )}
+    </>
   );
 }
 
@@ -309,6 +300,7 @@ export function DaySubscriptionsDialog({
     : "";
 
   if (isMobile) {
+    // 移动端当天列表使用 Drawer，避免小屏上 Dialog 高度和日历网格滚动互相挤压。
     return (
       <Drawer.Root open={open} onOpenChange={onOpenChange} shouldScaleBackground={false}>
         {open && (

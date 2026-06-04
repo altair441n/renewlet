@@ -49,6 +49,7 @@ jobs:
           set -euo pipefail
 
           VERSION="${RAW_VERSION#v}"
+          # 手动入口只接受三段式稳定版本；RC 后缀由 action=rc 统一拼接，避免维护者输入双重 rc。
           case "$ACTION" in
             prepare|rc|promote) ;;
             *)
@@ -85,6 +86,7 @@ jobs:
         run: |
           set -euo pipefail
 
+          # GitHub App token 会触发后续 tag workflow；普通 GITHUB_TOKEN 推 tag 不会启动正式发布链路。
           if [[ -z "$RELEASE_APP_CLIENT_ID" || -z "$RELEASE_APP_PRIVATE_KEY" ]]; then
             echo "Maintainer Release requires a dedicated GitHub App token." >&2
             echo "Set repository variable RENEWLET_RELEASE_APP_CLIENT_ID and repository secret RENEWLET_RELEASE_APP_PRIVATE_KEY." >&2

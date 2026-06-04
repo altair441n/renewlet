@@ -1,3 +1,4 @@
+// DateOnly 测试保护纯日期算法，避免 JS Date 时区换算把续费日推前或推后一天。
 import { describe, expect, it } from "vitest";
 import { assertDateOnly, dateOnlyToLocalDate, isValidDateOnly } from "@/lib/time/date-only";
 

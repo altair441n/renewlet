@@ -11,6 +11,12 @@ function clampMetric(value: number | undefined, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
 }
 
+/**
+ * ViewportHeightSync 将移动浏览器 visual viewport 同步为 CSS 变量。
+ *
+ * iOS/Android 软键盘会分多帧提交 viewport、focus 和滚动状态；这些变量让 Dialog/Drawer
+ * 使用同一套“当前可见高度”，避免表单底部按钮被键盘或地址栏遮住。
+ */
 export function ViewportHeightSync() {
   useEffect(() => {
     const root = document.documentElement;
@@ -66,6 +72,7 @@ export function ViewportHeightSync() {
     const syncViewportHeight = () => {
       clearSettleTimers();
       writeViewportMetrics();
+      // 软键盘动画结束时间不稳定，分段补采样比固定等一帧更能覆盖 WebView 和 iOS Safari。
       settleTimers = KEYBOARD_VIEWPORT_SETTLE_DELAYS_MS.map((delay) => window.setTimeout(writeViewportMetrics, delay));
     };
 

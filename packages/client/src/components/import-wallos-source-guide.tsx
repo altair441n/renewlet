@@ -1,3 +1,8 @@
+/**
+ * Wallos 导入来源能力对照表。
+ *
+ * 这里不是普通说明卡片：用户会据此选择 JSON/API/ZIP/SQLite 路径，能力矩阵必须和导入解析器的保真度保持一致。
+ */
 import type { ReactNode } from "react";
 import { Archive, ChevronDown, Database, FileJson, Info, KeyRound } from "lucide-react";
 import { useI18n } from "@/i18n/I18nProvider";
@@ -24,6 +29,7 @@ interface WallosGuideRow {
 
 export function ImportWallosSourceGuide() {
   const { t } = useI18n();
+  // 行顺序体现推荐路径：ZIP 能保留本地 logo 和用户信息，所以在视觉上标为 best。
   const rows = [
     {
       source: t("import.wallosGuideJsonTitle"),

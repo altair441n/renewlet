@@ -1,6 +1,9 @@
+// 导入 Logo 编辑器测试保护“暂存资产先预览、apply 时再持久化”的导入边界。
+import type { ReactNode } from "react";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { ImportLogoEditor } from "./import-logo-editor";
 
 type MediaCandidateResolve = typeof import("@/services/media-candidate-service").mediaCandidateService.resolve;
@@ -53,6 +56,10 @@ function mockMatchMedia(matchesByQuery: Record<string, boolean> = {}) {
   });
 }
 
+function renderWithTooltipProvider(ui: ReactNode) {
+  return render(<TooltipProvider delayDuration={0}>{ui}</TooltipProvider>);
+}
+
 describe("ImportLogoEditor", () => {
   beforeEach(() => {
     mocks.loadUploadedLogosInitial.mockReset();
@@ -78,7 +85,7 @@ describe("ImportLogoEditor", () => {
     const user = userEvent.setup();
     mockMatchMedia({ "(max-width: 767px)": true });
 
-    render(
+    renderWithTooltipProvider(
       <ImportLogoEditor
         name="Apple"
         value={null}
@@ -117,7 +124,7 @@ describe("ImportLogoEditor", () => {
     const user = userEvent.setup();
     mockMatchMedia({ "(max-width: 767px)": true });
 
-    render(
+    renderWithTooltipProvider(
       <ImportLogoEditor
         name="Apple"
         value="https://example.com/apple.svg"
@@ -128,7 +135,39 @@ describe("ImportLogoEditor", () => {
     await user.click(screen.getByRole("button", { name: "修改 Logo" }));
 
     expect(await screen.findByRole("button", { name: "关闭" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "清除 Logo" }).querySelector(".lucide-image-off")).not.toBeNull();
+    const clearLogoButton = screen.getByRole("button", { name: "清除 Logo" });
+    expect(clearLogoButton.querySelector(".lucide-image-off")).not.toBeNull();
+
+    await user.hover(clearLogoButton);
+
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("清除 Logo");
+  });
+
+  it("renders the trigger and sheet preview on the unified subscription logo surface", async () => {
+    const user = userEvent.setup();
+    mockMatchMedia({ "(max-width: 767px)": true });
+
+    renderWithTooltipProvider(
+      <ImportLogoEditor
+        name="Apple"
+        value="https://example.com/apple.svg"
+        onChange={vi.fn()}
+      />,
+    );
+
+    const triggerLogo = screen.getByRole("button", { name: "修改 Logo" }).querySelector(".subscription-logo-tile");
+    expect(triggerLogo).not.toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "修改 Logo" }));
+
+    const logo = screen.getAllByAltText("Apple")[0];
+    if (!logo) throw new Error("Expected Apple logo preview to render.");
+    const logoTile = logo.closest(".subscription-logo-tile");
+    if (!logoTile) throw new Error("Expected Apple logo preview to use the subscription logo tile.");
+
+    expect(logo).toHaveClass("subscription-logo-image", "object-contain");
+    expect(logo).not.toHaveClass("media-thumbnail-image", "invert", "brightness-125", "mix-blend-screen");
+    expect(logoTile).not.toHaveClass("media-thumbnail-canvas");
   });
 
   it("applies a custom Logo link without carrying a deferred asset", async () => {
@@ -136,7 +175,7 @@ describe("ImportLogoEditor", () => {
     const onChange = vi.fn();
     mockMatchMedia({ "(max-width: 767px)": true });
 
-    render(
+    renderWithTooltipProvider(
       <ImportLogoEditor
         name="Apple"
         value={null}

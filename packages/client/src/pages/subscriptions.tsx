@@ -104,6 +104,7 @@ type SubscriptionGridProps = {
   onEdit: (id: string) => void;
   onDelete: (id: string) => void;
   onTogglePinned: (id: string) => void;
+  onTogglePublicHidden: (id: string) => void;
   onViewDetails: (id: string) => void;
 };
 
@@ -117,6 +118,7 @@ function SubscriptionGrid({
   onEdit,
   onDelete,
   onTogglePinned,
+  onTogglePublicHidden,
   onViewDetails,
 }: SubscriptionGridProps) {
   const isTwoColumnGrid = useMediaQuery("(min-width: 640px)");
@@ -153,6 +155,7 @@ function SubscriptionGrid({
               onEdit={onEdit}
               onDelete={onDelete}
               onTogglePinned={onTogglePinned}
+              onTogglePublicHidden={onTogglePublicHidden}
               onViewDetails={onViewDetails}
             />
           </div>
@@ -190,6 +193,7 @@ function SubscriptionGrid({
     handleDeleteSubscription,
     handleEditSubscription,
     handleTogglePinnedSubscription,
+    handleTogglePublicHiddenSubscription,
     handleSaveSubscription,
     handleEditDialogOpenChange,
   } = useSubscriptionCrud(subscriptions);
@@ -564,6 +568,7 @@ function SubscriptionGrid({
               onEdit={handleEditSubscription}
               onDelete={handleDeleteSubscription}
               onTogglePinned={handleTogglePinnedSubscription}
+              onTogglePublicHidden={handleTogglePublicHiddenSubscription}
               onViewDetails={handleViewDetails}
             />
             {subscriptionsQuery.hasNextPage && (

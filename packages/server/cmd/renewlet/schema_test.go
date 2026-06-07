@@ -43,6 +43,7 @@ func TestEnsureSchemaCreatesContractFieldsAndIndexes(t *testing.T) {
 		"category":                     core.FieldTypeText,
 		"status":                       core.FieldTypeSelect,
 		"pinned":                       core.FieldTypeBool,
+		"publicHidden":                 core.FieldTypeBool,
 		"paymentMethod":                core.FieldTypeText,
 		"startDate":                    core.FieldTypeText,
 		"nextBillingDate":              core.FieldTypeText,
@@ -111,6 +112,13 @@ func TestEnsureSchemaCreatesContractFieldsAndIndexes(t *testing.T) {
 		"created":        core.FieldTypeAutodate,
 		"updated":        core.FieldTypeAutodate,
 	})
+	assertFields(t, app, "public_status_pages", map[string]string{
+		"user":       core.FieldTypeRelation,
+		"token":      core.FieldTypeText,
+		"showPrices": core.FieldTypeBool,
+		"created":    core.FieldTypeAutodate,
+		"updated":    core.FieldTypeAutodate,
+	})
 
 	assertIndex(t, app, "subscriptions", "idx_subscriptions_user")
 	assertIndex(t, app, "settings", "idx_settings_user_unique")
@@ -119,6 +127,8 @@ func TestEnsureSchemaCreatesContractFieldsAndIndexes(t *testing.T) {
 	assertIndex(t, app, "calendar_feeds", "idx_calendar_feeds_user_all_unique")
 	assertIndex(t, app, "calendar_feeds", "idx_calendar_feeds_token_unique")
 	assertIndex(t, app, "calendar_feeds", "idx_calendar_feeds_user_subscription_unique")
+	assertIndex(t, app, "public_status_pages", "idx_public_status_pages_user_unique")
+	assertIndex(t, app, "public_status_pages", "idx_public_status_pages_token_unique")
 }
 
 func TestEnsureSchemaSelfHealsExistingCollectionsWithoutAutodates(t *testing.T) {

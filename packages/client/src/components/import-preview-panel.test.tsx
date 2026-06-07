@@ -19,6 +19,7 @@ const payload = {
       category: "developer_tools",
       status: "active",
       pinned: false,
+      publicHidden: false,
       paymentMethod: undefined,
       startDate: "2026-05-01",
       nextBillingDate: "2026-06-01",

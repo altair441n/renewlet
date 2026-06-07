@@ -52,6 +52,7 @@ type appSettings struct {
 	ShowExpired              bool                      `json:"showExpired"`
 	Locale                   string                    `json:"locale"`
 	DefaultCurrency          string                    `json:"defaultCurrency"`
+	PublicStatusCurrency     string                    `json:"publicStatusCurrency"`
 	ExchangeRateProvider     string                    `json:"exchangeRateProvider"`
 	BuiltInIconSources       builtInIconSourceSettings `json:"builtInIconSources"`
 	AIRecognition            aiRecognitionSettings     `json:"aiRecognition"`
@@ -384,6 +385,7 @@ func defaultAppSettings() appSettings {
 		ShowExpired:          true,
 		Locale:               string(defaultAppLocale),
 		DefaultCurrency:      "CNY",
+		PublicStatusCurrency: "inherit",
 		ExchangeRateProvider: "floatrates",
 		BuiltInIconSources:   defaultBuiltInIconSourceSettings(),
 		AIRecognition: aiRecognitionSettings{

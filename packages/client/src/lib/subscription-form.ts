@@ -220,6 +220,7 @@ export function toSubscriptionDraft(formData: SubscriptionFormState): Subscripti
     category: formData.category,
     status: formData.status,
     pinned: false,
+    publicHidden: formData.publicHidden,
     paymentMethod: formData.paymentMethod || undefined,
     startDate,
     nextBillingDate,

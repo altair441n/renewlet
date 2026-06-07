@@ -25,6 +25,7 @@ const validSubscriptionCreateBody = {
   repeatReminderInterval: "1h",
   repeatReminderWindow: "72h",
   pinned: false,
+  publicHidden: false,
 };
 
 const validSubscriptionResponseBody = {
@@ -39,6 +40,7 @@ const validSubscriptionResponseBody = {
   category: validSubscriptionCreateBody.category,
   status: validSubscriptionCreateBody.status,
   pinned: validSubscriptionCreateBody.pinned,
+  publicHidden: validSubscriptionCreateBody.publicHidden,
   startDate: validSubscriptionCreateBody.startDate,
   nextBillingDate: validSubscriptionCreateBody.nextBillingDate,
   autoCalculateNextBillingDate: validSubscriptionCreateBody.autoCalculateNextBillingDate,
@@ -139,6 +141,18 @@ describe("subscription API schemas", () => {
       ...validSubscriptionCreateBody,
       status: "expired",
     }).success).toBe(true);
+  });
+
+  it("defaults public visibility to shown unless the subscription opts out", () => {
+    expect(subscriptionCreateBodySchema.parse({
+      ...validSubscriptionCreateBody,
+      publicHidden: undefined,
+    }).publicHidden).toBe(false);
+
+    expect(apiSubscriptionSchema.parse({
+      ...validSubscriptionResponseBody,
+      publicHidden: true,
+    }).publicHidden).toBe(true);
   });
 
   it("keeps subscription response logos on the same persistent contract", () => {

@@ -34,6 +34,7 @@ type SubscriptionCardHandlers = {
   onEdit?: (id: string) => void;
   onDelete?: (id: string) => void;
   onTogglePinned?: (id: string) => void;
+  onTogglePublicHidden?: (id: string) => void;
   onViewDetails?: (id: string) => void;
 };
 
@@ -129,6 +130,7 @@ const baseSubscription: Subscription = {
   repeatReminderInterval: "1h",
   repeatReminderWindow: "72h",
   pinned: false,
+  publicHidden: false,
 };
 
 function createSubscription(overrides: SubscriptionOverrides = {}): Subscription {
@@ -179,6 +181,7 @@ function renderSubscriptionCard(overrides: SubscriptionOverrides = {}, handlers:
         onEdit={handlers.onEdit ?? vi.fn()}
         onDelete={handlers.onDelete ?? vi.fn()}
         {...(handlers.onTogglePinned ? { onTogglePinned: handlers.onTogglePinned } : {})}
+        {...(handlers.onTogglePublicHidden ? { onTogglePublicHidden: handlers.onTogglePublicHidden } : {})}
         {...(handlers.onViewDetails ? { onViewDetails: handlers.onViewDetails } : {})}
       />
     </TooltipProvider>,
@@ -299,6 +302,24 @@ describe("SubscriptionCard", () => {
     openMoreActionsMenu();
 
     expect(screen.getByRole("menuitem", { name: "取消置顶" })).toBeInTheDocument();
+  });
+
+  it("toggles public visibility from the card menu", () => {
+    const onTogglePublicHidden = vi.fn();
+    renderSubscriptionCard({ publicHidden: false }, { onTogglePublicHidden });
+
+    openMoreActionsMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: "从公开页隐藏" }));
+
+    expect(onTogglePublicHidden).toHaveBeenCalledWith("sub-1");
+  });
+
+  it("shows a public reveal action for hidden subscriptions", () => {
+    renderSubscriptionCard({ publicHidden: true }, { onTogglePublicHidden: vi.fn() });
+
+    openMoreActionsMenu();
+
+    expect(screen.getByRole("menuitem", { name: "在公开页展示" })).toBeInTheDocument();
   });
 
   it("shows a title pin without adding card-level pinned accents", () => {

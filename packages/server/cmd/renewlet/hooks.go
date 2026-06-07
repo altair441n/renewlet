@@ -38,6 +38,7 @@ var (
 	// 私有资产路径只允许 record id 字符集，避免把任意 /api 路径伪装成 logo 引用。
 	privateAssetPathRe  = regexp.MustCompile(`^/api/app/assets/[A-Za-z0-9_-]+$`)
 	calendarFeedTokenRe = regexp.MustCompile(`^[A-Za-z0-9_-]{43}$`)
+	publicStatusTokenRe = regexp.MustCompile(`^[A-Za-z0-9_-]{43}$`)
 )
 
 type customConfigLabels struct {
@@ -90,9 +91,22 @@ func registerRecordHooks(app core.App) {
 			if err := normalizeCalendarFeedRecord(app, e.Record); err != nil {
 				return err
 			}
+		case "public_status_pages":
+			if err := normalizePublicStatusPageRecord(e.Record); err != nil {
+				return err
+			}
 		}
 		return e.Next()
 	})
+}
+
+func normalizePublicStatusPageRecord(record *core.Record) error {
+	token := strings.TrimSpace(record.GetString("token"))
+	if !publicStatusTokenRe.MatchString(token) {
+		return errors.New("PUBLIC_STATUS_PAGE_TOKEN_INVALID")
+	}
+	record.Set("token", token)
+	return nil
 }
 
 // normalizeSubscriptionRecord 校验并规范化订阅记录。

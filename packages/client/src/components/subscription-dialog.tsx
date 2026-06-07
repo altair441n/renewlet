@@ -190,6 +190,7 @@ export function SubscriptionDialog(props: SubscriptionDialogProps) {
       oneTimeTermUnit: subscription.billingCycle === "one-time" ? subscription.oneTimeTermUnit ?? "month" : "month",
       category: subscription.category,
       status: subscription.status,
+      publicHidden: subscription.publicHidden,
       paymentMethod: subscription.paymentMethod || "",
       startDate: subscription.startDate,
       nextBillingDate: subscription.nextBillingDate,
@@ -331,6 +332,7 @@ export function SubscriptionDialog(props: SubscriptionDialogProps) {
         oneTimeTermCount: undefined,
         oneTimeTermUnit: undefined,
         pinned: base.pinned,
+        publicHidden: draft.publicHidden,
       });
     } else if (draft.billingCycle === "one-time") {
       props.onSubmit({
@@ -342,6 +344,7 @@ export function SubscriptionDialog(props: SubscriptionDialogProps) {
         oneTimeTermCount: draft.oneTimeTermCount,
         oneTimeTermUnit: draft.oneTimeTermUnit,
         pinned: base.pinned,
+        publicHidden: draft.publicHidden,
       });
     } else {
       props.onSubmit({
@@ -353,6 +356,7 @@ export function SubscriptionDialog(props: SubscriptionDialogProps) {
         oneTimeTermCount: undefined,
         oneTimeTermUnit: undefined,
         pinned: base.pinned,
+        publicHidden: draft.publicHidden,
       });
     }
     setFormErrors({});

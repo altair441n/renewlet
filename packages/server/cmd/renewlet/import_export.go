@@ -60,6 +60,7 @@ type importSubscription struct {
 	Category                     string                 `json:"category"`
 	Status                       string                 `json:"status"`
 	Pinned                       bool                   `json:"pinned"`
+	PublicHidden                 bool                   `json:"publicHidden"`
 	PaymentMethod                *string                `json:"paymentMethod,omitempty"`
 	StartDate                    string                 `json:"startDate"`
 	NextBillingDate              string                 `json:"nextBillingDate"`
@@ -378,6 +379,7 @@ func setImportSubscriptionRecord(record *core.Record, userID string, subscriptio
 	record.Set("category", subscription.Category)
 	record.Set("status", subscription.Status)
 	record.Set("pinned", subscription.Pinned)
+	record.Set("publicHidden", subscription.PublicHidden)
 	record.Set("paymentMethod", optionalString(subscription.PaymentMethod))
 	record.Set("startDate", subscription.StartDate)
 	record.Set("nextBillingDate", subscription.NextBillingDate)

@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   handleDeleteSubscription: vi.fn(),
   handleEditDialogOpenChange: vi.fn(),
   handleEditSubscription: vi.fn(),
+  handleTogglePublicHiddenSubscription: vi.fn(),
   handleSaveSubscription: vi.fn(),
   ratesLoading: false,
   useSettings: vi.fn(),
@@ -36,10 +37,12 @@ vi.mock("@/components/subscription-card", () => ({
   SubscriptionCard: ({
     subscription,
     inheritedReminderDays,
+    onTogglePublicHidden,
     onViewDetails,
   }: {
     subscription: Subscription;
     inheritedReminderDays: number;
+    onTogglePublicHidden?: (id: string) => void;
     onViewDetails?: (id: string) => void;
   }) => (
     <article data-testid="subscription-card">
@@ -47,6 +50,9 @@ vi.mock("@/components/subscription-card", () => ({
       <span data-testid="subscription-card-reminder">{inheritedReminderDays}</span>
       <button type="button" onClick={() => onViewDetails?.(subscription.id)}>
         查看 {subscription.name} 的详情
+      </button>
+      <button type="button" onClick={() => onTogglePublicHidden?.(subscription.id)}>
+        公开切换 {subscription.name}
       </button>
     </article>
   ),
@@ -121,6 +127,7 @@ vi.mock("@/modules/subscriptions/application/use-subscription-crud", () => ({
     handleDeleteSubscription: mocks.handleDeleteSubscription,
     handleEditDialogOpenChange: mocks.handleEditDialogOpenChange,
     handleEditSubscription: mocks.handleEditSubscription,
+    handleTogglePublicHiddenSubscription: mocks.handleTogglePublicHiddenSubscription,
     handleSaveSubscription: mocks.handleSaveSubscription,
   }),
 }));
@@ -140,6 +147,7 @@ function subscription(overrides: Partial<RecurringCycleSubscription> = {}): Recu
     category: "productivity",
     status: "active",
     pinned: false,
+    publicHidden: false,
     paymentMethod: undefined,
     startDate: assertDateOnly("2026-04-18"),
     nextBillingDate: assertDateOnly("2026-05-18"),
@@ -199,6 +207,16 @@ describe("Dashboard page loading state", () => {
     await user.click(screen.getByRole("button", { name: "查看 Codex Pro 的详情" }));
 
     expect(screen.getByText("Codex Pro 详情")).toBeInTheDocument();
+  });
+
+  it("wires public visibility toggles from recent subscription cards", async () => {
+    const user = userEvent.setup();
+
+    render(<Dashboard />);
+
+    await user.click(screen.getByRole("button", { name: "公开切换 Codex Pro" }));
+
+    expect(mocks.handleTogglePublicHiddenSubscription).toHaveBeenCalledWith("codex-pro");
   });
 
   it.each([

@@ -16,15 +16,13 @@ import {
   DEFAULT_NOTIFICATION_REMINDER_DAYS,
   DISABLED_REMINDER_DAYS,
   INHERIT_REMINDER_DAYS,
-  STATUS_LABELS,
   CYCLE_LABELS,
   type Subscription,
-  type SubscriptionStatus,
 } from '@/types/subscription';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { colorWithAlpha } from '@/lib/color';
-import { Calendar, MoreHorizontal, CalendarClock, Bell, CreditCard, CalendarPlus, Pencil, Pin, PinOff, Trash2 } from 'lucide-react';
+import { Calendar, MoreHorizontal, CalendarClock, Bell, CreditCard, CalendarPlus, Eye, EyeOff, Pencil, Pin, PinOff, Trash2 } from 'lucide-react';
 import {
   daysBetweenDateOnly,
   todayDateOnlyInTimeZone,
@@ -54,6 +52,7 @@ import { useI18n } from '@/i18n/I18nProvider';
 import { localizedLabel } from '@/i18n/locales';
 import { AddToCalendarDialog } from '@/components/add-to-calendar-dialog';
 import { SubscriptionLogo } from '@/components/subscription-logo';
+import { SubscriptionStatusBadge } from '@/components/subscription-status-badge';
 import { formatBillingCycleLabel, isOneTimeBuyout, isOneTimeFixedTerm } from '@/lib/subscription-billing';
 
 export type SubscriptionCardLookup = ReadonlyMap<string, ConfigItem>;
@@ -69,6 +68,8 @@ interface SubscriptionCardProps {
   onDelete?: (id: string) => void;
   /** 置顶切换动作由页面持有 mutation，卡片只负责菜单入口。 */
   onTogglePinned?: (id: string) => void;
+  /** 公开页隐藏切换由页面持有 mutation，卡片只负责菜单入口。 */
+  onTogglePublicHidden?: (id: string) => void;
   /** 卡片主体 primary action：打开只读详情；菜单内动作保持独立。 */
   onViewDetails?: (id: string) => void;
   /** 用户 IANA 时区，用于续费/试用提示窗口。 */
@@ -81,15 +82,6 @@ interface SubscriptionCardProps {
   inheritedReminderDays?: number | undefined;
 }
 
-/** 状态配色：用于 trial/active 等视觉提示。 */
-const statusStyles: Record<SubscriptionStatus, string> = {
-  trial: 'bg-warning/10 text-warning border-warning/20',
-  active: 'bg-success/10 text-success border-success/20',
-  expired: 'bg-destructive/10 text-destructive border-destructive/20',
-  paused: 'bg-muted text-muted-foreground border-muted',
-  cancelled: 'bg-destructive/10 text-destructive border-destructive/20',
-};
-
 const DEFAULT_BADGE_COLOR = "hsl(var(--primary))";
 
 /** 订阅卡片。 */
@@ -99,6 +91,7 @@ export function SubscriptionCard({
   onEdit,
   onDelete,
   onTogglePinned,
+  onTogglePublicHidden,
   onViewDetails,
   timeZone,
   categoryByValue,
@@ -223,6 +216,16 @@ export function SubscriptionCard({
                     {subscription.pinned ? t("subscription.unpin") : t("subscription.pin")}
                   </DropdownMenuItem>
                 ) : null}
+                {onTogglePublicHidden ? (
+                  <DropdownMenuItem className="gap-2.5 px-2.5 py-2 text-sm" onClick={() => onTogglePublicHidden(subscription.id)}>
+                    {subscription.publicHidden ? (
+                      <Eye className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    ) : (
+                      <EyeOff className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    )}
+                    {subscription.publicHidden ? t("subscription.publicShow") : t("subscription.publicHide")}
+                  </DropdownMenuItem>
+                ) : null}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   onClick={() => setShowDeleteDialog(true)}
@@ -242,12 +245,7 @@ export function SubscriptionCard({
               >
                 <TruncatedTooltipText text={categoryLabel} className="block max-w-full" />
               </Badge>
-              <Badge
-                variant="outline"
-                className={cn("shrink-0 whitespace-nowrap text-xs", statusStyles[effectiveStatus])}
-              >
-                {localizedLabel(STATUS_LABELS[effectiveStatus], locale)}
-              </Badge>
+              <SubscriptionStatusBadge status={effectiveStatus} />
               {isOneTime && (
                 <Badge variant="secondary" className="shrink-0 whitespace-nowrap text-xs">
                   {localizedLabel(CYCLE_LABELS["one-time"], locale)}

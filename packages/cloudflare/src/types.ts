@@ -69,6 +69,7 @@ export interface SubscriptionRow {
   category: string;
   status: string;
   pinned: number;
+  public_hidden: number;
   payment_method: string | null;
   start_date: string;
   next_billing_date: string;
@@ -122,6 +123,16 @@ export interface CalendarFeedRow {
   scope: "all" | "subscription";
   subscription_id: string | null;
   token: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/** 公开展示页 token 是可撤销 bearer secret；只有完整 URL 回显给登录用户复制。 */
+export interface PublicStatusPageRow {
+  id: string;
+  user_id: string;
+  token: string;
+  show_prices: number;
   created_at: string;
   updated_at: string;
 }

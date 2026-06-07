@@ -75,7 +75,10 @@ func ensureSchema(app core.App) error {
 	if err := ensureCalendarFeedsCollection(app, users); err != nil {
 		return err
 	}
-	if err := backfillAutodates(app, "subscriptions", "settings", "custom_configs", "assets", "notification_jobs", "calendar_feeds"); err != nil {
+	if err := ensurePublicStatusPagesCollection(app, users); err != nil {
+		return err
+	}
+	if err := backfillAutodates(app, "subscriptions", "settings", "custom_configs", "assets", "notification_jobs", "calendar_feeds", "public_status_pages"); err != nil {
 		return err
 	}
 	if err := deleteLegacyHashOnlyCalendarFeeds(app); err != nil {
@@ -271,6 +274,7 @@ func ensureSubscriptionsCollection(app core.App, users *core.Collection) error {
 			&core.TextField{Name: "category", Required: true, Max: 80},
 			&core.SelectField{Name: "status", Required: true, Values: []string{"trial", "active", "expired", "paused", "cancelled"}},
 			&core.BoolField{Name: "pinned"},
+			&core.BoolField{Name: "publicHidden"},
 			&core.TextField{Name: "paymentMethod", Max: 80},
 			&core.TextField{Name: "startDate", Required: true, Max: 10, Pattern: `^\d{4}-\d{2}-\d{2}$`},
 			&core.TextField{Name: "nextBillingDate", Required: true, Max: 10, Pattern: `^\d{4}-\d{2}-\d{2}$`},
@@ -422,6 +426,28 @@ func ensureCalendarFeedsCollection(app core.App, users *core.Collection) error {
 		c.AddIndex("idx_calendar_feeds_user_all_unique", true, "user", "scope = 'all'")
 		c.AddIndex("idx_calendar_feeds_token_unique", true, "token", "")
 		c.AddIndex("idx_calendar_feeds_user_subscription_unique", true, "user, subscriptionId", "scope = 'subscription'")
+		return nil
+	})
+}
+
+func ensurePublicStatusPagesCollection(app core.App, users *core.Collection) error {
+	return ensureCollection(app, "public_status_pages", func(c *core.Collection) error {
+		ownerRules(c)
+		if err := upsertField(c, userRelation(users)); err != nil {
+			return err
+		}
+		// token 是公开状态页的 bearer secret；只回显完整 URL，避免前端把 token 当普通设置导入导出。
+		if err := upsertField(c, &core.TextField{Name: "token", Required: true, Max: 128, Pattern: `^[A-Za-z0-9_-]{43}$`}); err != nil {
+			return err
+		}
+		if err := upsertField(c, &core.BoolField{Name: "showPrices"}); err != nil {
+			return err
+		}
+		if err := ensureAutodates(c); err != nil {
+			return err
+		}
+		c.AddIndex("idx_public_status_pages_user_unique", true, "user", "")
+		c.AddIndex("idx_public_status_pages_token_unique", true, "token", "")
 		return nil
 	})
 }

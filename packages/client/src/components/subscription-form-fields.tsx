@@ -524,6 +524,21 @@ export const SubscriptionFormFields = memo(function SubscriptionFormFields({
         )}
       </div>
 
+      <div className="flex items-center justify-between gap-4 rounded-lg border border-border bg-secondary/30 p-3">
+        <div className="min-w-0">
+          <Label htmlFor={id("publicHidden")} className="cursor-pointer text-sm font-medium">
+            {t("subscription.publicHidden")}
+          </Label>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">{t("subscription.publicHiddenHelp")}</p>
+        </div>
+        <Switch
+          id={id("publicHidden")}
+          checked={formData.publicHidden}
+          onCheckedChange={(checked) => update("publicHidden", checked)}
+          aria-label={t("subscription.publicHidden")}
+        />
+      </div>
+
       <div className="grid gap-2">
         <Label htmlFor={id("website")}>{t("subscription.field.website")}</Label>
         <Input

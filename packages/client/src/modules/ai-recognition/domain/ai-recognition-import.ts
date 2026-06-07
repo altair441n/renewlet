@@ -77,6 +77,7 @@ function buildAIImportSubscription(draft: AiRecognizedSubscriptionDraft, state: 
     category,
     status: draft.status ?? "active",
     pinned: false,
+    publicHidden: false,
     paymentMethod,
     startDate: startDate as DateOnly,
     nextBillingDate: nextBillingDate as DateOnly,

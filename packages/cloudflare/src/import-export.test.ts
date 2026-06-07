@@ -90,6 +90,7 @@ function importSubscription(overrides: Record<string, unknown> = {}) {
     category: "productivity",
     status: "active",
     pinned: false,
+    publicHidden: false,
     paymentMethod: null,
     startDate: "2026-05-21",
     nextBillingDate: "2026-06-21",
@@ -177,7 +178,7 @@ describe("Cloudflare import", () => {
     expect(insert?.values[8]).toBeNull();
     expect(insert?.values[9]).toBeNull();
     expect(insert?.values[10]).toBeNull();
-    expect(insert?.values[17]).toBe(0);
+    expect(insert?.values[18]).toBe(0);
   });
 
   it("preserves one-time fixed term fields before binding D1 statements", async () => {
@@ -201,7 +202,7 @@ describe("Cloudflare import", () => {
     expect(insert?.values[8]).toBeNull();
     expect(insert?.values[9]).toBe(6);
     expect(insert?.values[10]).toBe("month");
-    expect(insert?.values[17]).toBe(0);
+    expect(insert?.values[18]).toBe(0);
   });
 
   it("preserves disabled reminder days before binding D1 statements", async () => {
@@ -215,7 +216,7 @@ describe("Cloudflare import", () => {
     expect(response.status).toBe(200);
     expect(db.batch).toHaveBeenCalledTimes(1);
     const insert = statements.find((statement) => statement.sql.includes("INSERT INTO subscriptions"));
-    expect(insert?.values[22]).toBe(-2);
+    expect(insert?.values[23]).toBe(-2);
   });
 
   it("skips existing import keys unless replace is selected", async () => {
@@ -235,6 +236,7 @@ describe("Cloudflare import", () => {
         category: "productivity",
         status: "active",
         pinned: 0,
+        public_hidden: 0,
         payment_method: null,
         start_date: "2026-05-21",
         next_billing_date: "2026-06-21",

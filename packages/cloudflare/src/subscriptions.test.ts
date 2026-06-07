@@ -19,6 +19,7 @@ function subscriptionBody(overrides: Partial<SubscriptionBody> = {}): Subscripti
     category: "productivity",
     status: "active",
     pinned: false,
+    publicHidden: false,
     paymentMethod: null,
     startDate: "2026-05-14",
     nextBillingDate: "2029-05-14",
@@ -102,6 +103,17 @@ describe("Cloudflare subscription mapper", () => {
     });
   });
 
+  it("persists public hidden through the API mapper", () => {
+    const row = toSubscriptionRow("sub_private", "usr_custom", subscriptionBody({
+      publicHidden: true,
+    }), "2026-06-05T00:00:00.000Z", "2026-06-05T00:00:00.000Z");
+
+    expect(row.public_hidden).toBe(1);
+    expect(toApiSubscription(row)).toMatchObject({
+      publicHidden: true,
+    });
+  });
+
   it("clears one-time term fields for recurring subscriptions", () => {
     const row = toSubscriptionRow("sub_monthly", "usr_custom", subscriptionBody({
       billingCycle: "monthly",
@@ -121,13 +133,18 @@ describe("Cloudflare subscription mapper", () => {
     const initialMigration = readFileSync(resolve("migrations/0001_initial.sql"), "utf8");
     const customUnitMigration = readFileSync(resolve("migrations/0007_subscription_custom_cycle_unit.sql"), "utf8");
     const oneTimeTermMigration = readFileSync(resolve("migrations/0008_subscription_one_time_term.sql"), "utf8");
+    const publicStatusMigration = readFileSync(resolve("migrations/0009_public_status.sql"), "utf8");
 
     expect(initialMigration).not.toContain("custom_cycle_unit");
     expect(initialMigration).not.toContain("one_time_term");
+    expect(initialMigration).not.toContain("public_hidden");
+    expect(initialMigration).not.toContain("public_status_pages");
     expect(customUnitMigration.trim()).toBe("ALTER TABLE subscriptions ADD COLUMN custom_cycle_unit TEXT;");
     expect(oneTimeTermMigration.trim()).toBe([
       "ALTER TABLE subscriptions ADD COLUMN one_time_term_count INTEGER;",
       "ALTER TABLE subscriptions ADD COLUMN one_time_term_unit TEXT;",
     ].join("\n"));
+    expect(publicStatusMigration).toContain("ALTER TABLE subscriptions ADD COLUMN public_hidden INTEGER NOT NULL DEFAULT 0;");
+    expect(publicStatusMigration).toContain("CREATE TABLE IF NOT EXISTS public_status_pages");
   });
 });

@@ -40,6 +40,8 @@ func registerRoutes(app core.App, router *router.Router[*core.RequestEvent]) {
 			SetupEnabled:  envBool("SETUP_ENABLED", true),
 		})
 	})
+	router.GET("/api/public/status/{token}", func(e *core.RequestEvent) error { return handlePublicStatusRead(app, e) })
+	router.GET("/api/public/status/{token}/assets/{assetId}", func(e *core.RequestEvent) error { return handlePublicStatusAssetRead(app, e) })
 	router.GET("/calendar/renewals.ics", func(e *core.RequestEvent) error { return handleCalendarFeedICS(app, e) })
 	router.GET("/api/cron/notifications", func(e *core.RequestEvent) error { return handleNotificationCron(app, e) })
 	router.POST("/api/app/setup", func(e *core.RequestEvent) error {
@@ -224,6 +226,10 @@ func registerRoutes(app core.App, router *router.Router[*core.RequestEvent]) {
 	auth.GET("/calendar-feed", func(e *core.RequestEvent) error { return handleCalendarFeedStatus(app, e) })
 	auth.POST("/calendar-feed", func(e *core.RequestEvent) error { return handleCalendarFeedCreate(app, e) })
 	auth.DELETE("/calendar-feed", func(e *core.RequestEvent) error { return handleCalendarFeedDelete(app, e) })
+	auth.GET("/public-status-page", func(e *core.RequestEvent) error { return handlePublicStatusPageStatus(app, e) })
+	auth.POST("/public-status-page", func(e *core.RequestEvent) error { return handlePublicStatusPageCreate(app, e) })
+	auth.PATCH("/public-status-page", func(e *core.RequestEvent) error { return handlePublicStatusPageUpdate(app, e) })
+	auth.DELETE("/public-status-page", func(e *core.RequestEvent) error { return handlePublicStatusPageDelete(app, e) })
 	auth.GET("/subscriptions/{id}/calendar-feed", func(e *core.RequestEvent) error { return handleSubscriptionCalendarFeedStatus(app, e) })
 	auth.POST("/subscriptions/{id}/calendar-feed", func(e *core.RequestEvent) error { return handleSubscriptionCalendarFeedCreate(app, e) })
 	auth.DELETE("/subscriptions/{id}/calendar-feed", func(e *core.RequestEvent) error { return handleSubscriptionCalendarFeedDelete(app, e) })

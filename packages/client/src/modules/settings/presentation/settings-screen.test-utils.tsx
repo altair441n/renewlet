@@ -20,10 +20,12 @@ export const SETTINGS_SECTION_IDS = [
   "settings-appearance",
   "settings-display",
   "settings-icon-sources",
+  "settings-ai-recognition",
   "settings-budget",
   "settings-data-config",
   "settings-exchange",
   "settings-calendar-feed",
+  "settings-public-status",
   "settings-timezone",
   "settings-notifications",
 ] as const;
@@ -130,7 +132,33 @@ vi.mock("@/components/theme-selector", () => ({
 }));
 
 vi.mock("@/components/ui/searchable-select", () => ({
-  SearchableSelect: ({ value }: { value: string }) => <div data-testid="searchable-select">{value}</div>,
+  SearchableSelect: ({
+    value,
+    onValueChange,
+    options,
+    "aria-label": ariaLabel,
+  }: {
+    value: string;
+    onValueChange: (value: string) => void;
+    options: Array<{ value: string; label: string }>;
+    "aria-label"?: string;
+  }) => {
+    const selected = options.find((option) => option.value === value);
+    const next = options.find((option) => option.value !== value);
+    return (
+      <button
+        type="button"
+        role="combobox"
+        aria-label={ariaLabel}
+        data-testid="searchable-select"
+        onClick={() => {
+          if (next) onValueChange(next.value);
+        }}
+      >
+        {selected?.label ?? value}
+      </button>
+    );
+  },
 }));
 
 vi.mock("@/components/ui/time-picker", () => ({
@@ -151,6 +179,13 @@ export function createControllerState(overrides: {
   calendarFeed?: {
     enabled?: boolean;
     feedUrl?: string | null;
+  };
+  publicStatusPage?: {
+    enabled?: boolean;
+    pageUrl?: string | null;
+    showPrices?: boolean;
+    visibleCount?: number;
+    hiddenCount?: number;
   };
   rates?: ExchangeRates;
 } = {}) {
@@ -229,6 +264,23 @@ export function createControllerState(overrides: {
       openSystem: fn,
       regenerate: fn,
       revoke: fn,
+    },
+    publicStatusPage: {
+      enabled: overrides.publicStatusPage?.enabled ?? false,
+      pageUrl: overrides.publicStatusPage?.pageUrl ?? null,
+      showPrices: overrides.publicStatusPage?.showPrices ?? false,
+      visibleCount: overrides.publicStatusPage?.visibleCount ?? 0,
+      hiddenCount: overrides.publicStatusPage?.hiddenCount ?? 0,
+      isLoading: false,
+      isCreating: false,
+      isDeleting: false,
+      isUpdating: false,
+      createOrRotate: fn,
+      copyUrl: fn,
+      openPage: fn,
+      regenerate: fn,
+      revoke: fn,
+      updateShowPrices: fn,
     },
     password: {
       passwordDialogOpen: false,

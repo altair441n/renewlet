@@ -104,6 +104,7 @@ function buildLegacySubscription(
     category: normalizeCategory(row["category"]),
     status: normalizeStatus(row["status"], localWarnings),
     pinned: false,
+    publicHidden: false,
     paymentMethod: normalizeOptionalText(row["paymentMethod"]),
     startDate,
     nextBillingDate,

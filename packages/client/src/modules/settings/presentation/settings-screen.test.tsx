@@ -246,6 +246,81 @@ describe("SettingsScreen SMTP email settings", () => {
     expect(screen.getByRole("button", { name: "生成订阅 URL" })).toBeInTheDocument();
   });
 
+  it("lets users choose the public status reporting currency from the public status section", async () => {
+    const user = userEvent.setup();
+    const controller = createControllerState({
+      settings: {
+        defaultCurrency: "USD",
+        publicStatusCurrency: "inherit",
+      },
+      publicStatusPage: {
+        enabled: true,
+        pageUrl: "https://example.com/status/secret",
+        showPrices: true,
+        visibleCount: 3,
+        hiddenCount: 1,
+      },
+    });
+    mocks.useSettingsFormController.mockReturnValue(controller);
+
+    renderSettingsScreen();
+
+    expect(screen.getByRole("heading", { name: "公开展示" })).toBeInTheDocument();
+    expect(screen.getByLabelText("公开展示 URL")).toHaveValue("https://example.com/status/secret");
+    expect(screen.getByText("展示 3 · 隐藏 1")).toBeInTheDocument();
+    expect(screen.queryByText("当前将展示 3 条订阅，隐藏 1 条。")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "复制 URL" }));
+    expect(controller.publicStatusPage.copyUrl).toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "打开公开页" }));
+    expect(controller.publicStatusPage.openPage).toHaveBeenCalled();
+
+    await user.click(screen.getByRole("switch", { name: "公开金额" }));
+    expect(controller.publicStatusPage.updateShowPrices).toHaveBeenCalledWith(false);
+
+    const currencySelect = screen.getByRole("combobox", { name: "公开页统计货币" });
+    expect(currencySelect).toHaveTextContent("继承统计货币（当前 USD）");
+
+    await user.click(currencySelect);
+
+    expect(controller.updateSetting).toHaveBeenLastCalledWith("publicStatusCurrency", "CNY");
+
+    await user.click(screen.getByRole("button", { name: "重新生成" }));
+    const regenerateDialog = await screen.findByRole("alertdialog", { name: "重新生成公开展示 URL？" });
+    expect(within(regenerateDialog).getByText("旧 URL 会立即失效，已经分享出去的公开页需要使用新链接访问。")).toBeInTheDocument();
+    await user.click(within(regenerateDialog).getByRole("button", { name: "重新生成" }));
+    expect(controller.publicStatusPage.regenerate).toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "撤销公开页" }));
+    expect(controller.publicStatusPage.revoke).toHaveBeenCalled();
+  });
+
+  it("keeps the public status setup compact before URL generation", async () => {
+    const user = userEvent.setup();
+    const controller = createControllerState({
+      publicStatusPage: {
+        enabled: false,
+        pageUrl: null,
+        visibleCount: 105,
+        hiddenCount: 0,
+      },
+    });
+    mocks.useSettingsFormController.mockReturnValue(controller);
+
+    renderSettingsScreen();
+
+    expect(screen.getByRole("heading", { name: "公开展示" })).toBeInTheDocument();
+    expect(screen.getByText("生成后展示未隐藏订阅，金额默认隐藏。")).toBeInTheDocument();
+    expect(screen.getByText("展示 105 · 隐藏 0")).toBeInTheDocument();
+    expect(screen.queryByRole("switch", { name: "公开金额" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "公开页统计货币" })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("公开展示 URL")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "生成公开链接" }));
+    expect(controller.publicStatusPage.createOrRotate).toHaveBeenCalled();
+  });
+
   it("uses H5 layout classes and native phone metadata for settings", () => {
     const { container } = renderSettingsScreen();
 

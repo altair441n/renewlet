@@ -158,6 +158,8 @@ interface SubscriptionBase {
   status: SubscriptionStatus;
   /** 是否置顶显示；列表排序会先按置顶分组，再应用用户选择的排序条件。 */
   pinned: boolean;
+  /** publicHidden=false 是公开展示页启用后的默认可见语义；隐藏必须由用户逐条显式选择。 */
+  publicHidden: boolean;
   /** 支付方式（可选）。 */
   paymentMethod: PaymentMethod | undefined;
   /** 下次扣费日期（用于提醒与日历）。 */
@@ -230,6 +232,8 @@ export interface SubscriptionStats {
   trialEndingSoon: number;
 }
 
+export type PublicStatusCurrency = "inherit" | (string & {});
+
 export interface AppSettings {
   // 管理员展示信息
   /** 管理员用户名（用于界面展示/未来扩展）。 */
@@ -248,6 +252,8 @@ export interface AppSettings {
   showExpired: boolean;
   /** 默认货币（用于统计/展示换算）。 */
   defaultCurrency: string;
+  /** 公开页金额汇总货币；inherit 表示跟随 defaultCurrency。 */
+  publicStatusCurrency: PublicStatusCurrency;
   /** 首选汇率来源；另一个远端来源仍作为兜底。 */
   exchangeRateProvider: ExchangeRateProvider;
   /** 内置 Logo/Icon 来源配置；影响搜索候选和导入自动匹配。 */

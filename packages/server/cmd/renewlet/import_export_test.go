@@ -481,6 +481,7 @@ func importSubscriptionBody(source string, sourceID string, confidence string, p
 		"category":                     "developer_tools",
 		"status":                       "active",
 		"pinned":                       false,
+		"publicHidden":                 false,
 		"paymentMethod":                nil,
 		"startDate":                    "2026-01-01",
 		"nextBillingDate":              "2026-02-01",

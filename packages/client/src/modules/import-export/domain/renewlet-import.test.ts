@@ -27,6 +27,7 @@ const currentExportSubscription = {
   category: "developer_tools",
   status: "active",
   pinned: true,
+  publicHidden: false,
   paymentMethod: undefined,
   startDate: assertDateOnly("2026-05-01"),
   nextBillingDate: assertDateOnly("2026-06-01"),

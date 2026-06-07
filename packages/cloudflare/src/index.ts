@@ -29,6 +29,14 @@ import { recognizeSubscriptions, testAIRecognitionConnection } from "./ai-recogn
 import { listAIModels } from "./ai-models";
 import { mediaCandidates } from "./search";
 import { notificationHistory, notificationRun, notificationTest, runScheduledNotifications } from "./notifications";
+import {
+  createPublicStatusPage,
+  deletePublicStatusPage,
+  readPublicStatus,
+  readPublicStatusAsset,
+  readPublicStatusPage,
+  updatePublicStatusPage,
+} from "./public-status";
 import { systemRestart, systemUpdate, systemVersion } from "./system";
 import { errorResponse, methodNotAllowed, pathSegments, requestLocale, toResponse } from "./http";
 import { serverText } from "./server-i18n";
@@ -74,8 +82,21 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
     GET: () => setupStatus(request, env),
     POST: () => createInitialAdmin(request, env),
   });
+  if (url.pathname.startsWith("/api/public/")) return routePublic(request, env, url);
   if (url.pathname.startsWith("/api/app/")) return routeApp(request, env, url);
   return errorResponse(404, serverText(locale, "common.notFound"), "NOT_FOUND");
+}
+
+async function routePublic(request: Request, env: Env, url: URL): Promise<Response> {
+  const segments = pathSegments(url, "/api/public");
+  const [head, pageToken, third, assetId] = segments;
+  if (head === "status" && pageToken && !third) {
+    return routeMethods(request, { GET: () => readPublicStatus(request, env, pageToken) });
+  }
+  if (head === "status" && pageToken && third === "assets" && assetId) {
+    return routeMethods(request, { GET: () => readPublicStatusAsset(request, env, pageToken, assetId) });
+  }
+  return errorResponse(404, serverText(requestLocale(request), "common.notFound"), "NOT_FOUND");
 }
 
 async function routeApp(request: Request, env: Env, url: URL): Promise<Response> {
@@ -161,6 +182,13 @@ async function routeApp(request: Request, env: Env, url: URL): Promise<Response>
     GET: () => readCalendarFeed(request, env),
     POST: () => createCalendarFeed(request, env),
     DELETE: () => deleteCalendarFeed(request, env),
+  });
+
+  if (head === "public-status-page" && !second) return routeMethods(request, {
+    GET: () => readPublicStatusPage(request, env),
+    POST: () => createPublicStatusPage(request, env),
+    PATCH: () => updatePublicStatusPage(request, env),
+    DELETE: () => deletePublicStatusPage(request, env),
   });
 
   if (head === "notifications" && second === "history") return routeMethods(request, { GET: () => notificationHistory(request, env) });

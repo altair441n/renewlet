@@ -33,14 +33,14 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { SearchableSelect } from '@/components/ui/searchable-select';
+import { SearchableSelect, type SearchableSelectOption } from '@/components/ui/searchable-select';
 import { TimePicker } from '@/components/ui/time-picker';
 import { ConfigManagerDialog } from '@/modules/custom-config/presentation/config-manager-dialog';
 import { ThemeSelector } from '@/components/theme-selector';
 import { NotificationHistoryPanel } from './notification-history-panel';
 import { Settings2, FolderKanban, Activity, CreditCard, Coins, Palette } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { CURRENCY_OPTIONS, MAX_REMINDER_DAYS, type NotificationChannel } from '@/types/subscription';
+import { CURRENCY_OPTIONS, MAX_REMINDER_DAYS, type NotificationChannel, type PublicStatusCurrency } from '@/types/subscription';
 import { isBuiltInPaymentMethodValue } from '@/types/config';
 import { assertLocalTime } from '@/lib/time/local-time';
 import { getSupportedTimeZones } from '@/lib/time/time-zone';
@@ -55,6 +55,7 @@ import { ExchangeRatesSection } from './exchange-rates-section';
 import { BuiltInIconSourcesSection } from './built-in-icon-sources-section';
 import { AIRecognitionSettingsSection } from './ai-recognition-settings-section';
 import { CalendarFeedSection } from './calendar-feed-section';
+import { PublicStatusPageSection } from './public-status-page-section';
 import { CheckboxSettingRow, LoadingButtonContent } from './settings-shared-controls';
 import {
   DesktopSettingsSectionNav,
@@ -104,6 +105,7 @@ export function SettingsScreen() {
     isSavingSettings,
     notificationHistory,
     calendarFeed,
+    publicStatusPage,
     password,
     passwordResetEnabled,
   } = useSettingsFormController();
@@ -130,6 +132,27 @@ export function SettingsScreen() {
     formatLabel: (item, option) =>
       `${getCurrencySymbol(item.value)} ${option ? localizeLabel(option.labels) : localizeLabel(item.labels)}`,
   });
+  const effectivePublicStatusCurrency = settings.publicStatusCurrency === "inherit"
+    ? settings.defaultCurrency
+    : settings.publicStatusCurrency;
+  const explicitPublicStatusCurrency = settings.publicStatusCurrency === "inherit"
+    ? null
+    : settings.publicStatusCurrency;
+  const publicStatusCurrencyOptions: SearchableSelectOption[] = [
+    {
+      value: "inherit",
+      label: t("settings.publicStatusCurrencyInherit", { currency: settings.defaultCurrency }),
+      keywords: ["inherit", settings.defaultCurrency],
+    },
+    ...createCurrencySelectOptions({
+      currencies: customConfig.currencies,
+      currencyOptions: CURRENCY_OPTIONS,
+      ...(explicitPublicStatusCurrency ? { includeDisabledCurrent: explicitPublicStatusCurrency } : {}),
+      locale,
+      formatLabel: (item, option) =>
+        `${getCurrencySymbol(item.value)} ${option ? localizeLabel(option.labels) : localizeLabel(item.labels)}`,
+    }),
+  ];
   const [selectedNotificationChannel, setSelectedNotificationChannel] = useState<NotificationChannel | null>(null);
   const [notificationReminderDaysInput, setNotificationReminderDaysInput] = useState(String(settings.notificationReminderDays));
   const [mobileSectionNavOpen, setMobileSectionNavOpen] = useState(false);
@@ -397,6 +420,30 @@ export function SettingsScreen() {
                 onDelete={calendarFeed.revoke}
                 onOpenSystem={calendarFeed.openSystem}
                 onRegenerate={calendarFeed.regenerate}
+              />
+
+              <PublicStatusPageSection
+                id="settings-public-status"
+                className={SETTINGS_SECTION_SCROLL_CLASS}
+                enabled={publicStatusPage.enabled}
+                pageUrl={publicStatusPage.pageUrl}
+                showPrices={publicStatusPage.showPrices}
+                publicStatusCurrency={settings.publicStatusCurrency}
+                effectivePublicStatusCurrency={effectivePublicStatusCurrency}
+                publicStatusCurrencyOptions={publicStatusCurrencyOptions}
+                visibleCount={publicStatusPage.visibleCount}
+                hiddenCount={publicStatusPage.hiddenCount}
+                isLoading={publicStatusPage.isLoading}
+                isCreating={publicStatusPage.isCreating}
+                isDeleting={publicStatusPage.isDeleting}
+                isUpdating={publicStatusPage.isUpdating}
+                onCreate={publicStatusPage.createOrRotate}
+                onCopy={publicStatusPage.copyUrl}
+                onDelete={publicStatusPage.revoke}
+                onOpenPage={publicStatusPage.openPage}
+                onRegenerate={publicStatusPage.regenerate}
+                onShowPricesChange={publicStatusPage.updateShowPrices}
+                onPublicStatusCurrencyChange={(value) => updateSetting("publicStatusCurrency", value as PublicStatusCurrency)}
               />
 
               {/* 时区设置 */}

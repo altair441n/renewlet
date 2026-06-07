@@ -58,6 +58,7 @@ function makeSubscription(overrides: Partial<Subscription> = {}): Subscription {
     customCycleUnit: undefined,
     category: "productivity",
     status: "active",
+    publicHidden: false,
     paymentMethod: "alipay",
     startDate: assertDateOnly("2026-05-14"),
     nextBillingDate: assertDateOnly("2026-06-13"),
@@ -70,6 +71,7 @@ function makeSubscription(overrides: Partial<Subscription> = {}): Subscription {
     repeatReminderEnabled: true,
     repeatReminderInterval: "1h",
     repeatReminderWindow: "72h",
+    pinned: false,
     ...overrides,
   } as Subscription;
 }
@@ -369,6 +371,7 @@ describe("SubscriptionDialog", () => {
       customCycleUnit: undefined,
       category: "productivity",
       status: "active",
+      publicHidden: false,
       pinned: false,
       paymentMethod: "alipay",
       startDate: assertDateOnly("2026-04-16"),
@@ -606,6 +609,7 @@ describe("SubscriptionDialog", () => {
       customCycleUnit: undefined,
       category: "productivity",
       status: "active",
+      publicHidden: false,
       pinned: false,
       paymentMethod: "alipay",
       startDate: assertDateOnly("2026-05-14"),

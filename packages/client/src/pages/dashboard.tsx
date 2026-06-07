@@ -79,6 +79,7 @@ export default function Index() {
     handleAddSubscription,
     handleDeleteSubscription,
     handleEditSubscription,
+    handleTogglePublicHiddenSubscription,
     handleSaveSubscription,
     handleEditDialogOpenChange,
   } = useSubscriptionCrud(subscriptions);
@@ -178,6 +179,7 @@ export default function Index() {
                     paymentMethodByValue={paymentMethodByValue}
                     onEdit={handleEditSubscription}
                     onDelete={handleDeleteSubscription}
+                    onTogglePublicHidden={handleTogglePublicHiddenSubscription}
                     onViewDetails={handleViewDetails}
                   />
                 </div>

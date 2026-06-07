@@ -7,15 +7,15 @@
 import { useState, type ReactNode } from "react";
 import { Drawer } from "vaul";
 import { CalendarPlus, Edit2, ExternalLink, X } from "lucide-react";
-import type { Subscription, SubscriptionStatus } from "@/types/subscription";
+import type { Subscription } from "@/types/subscription";
 import {
   DEFAULT_NOTIFICATION_REMINDER_DAYS,
   DISABLED_REMINDER_DAYS,
   INHERIT_REMINDER_DAYS,
-  STATUS_LABELS,
 } from "@/types/subscription";
 import { AddToCalendarDialog } from "@/components/add-to-calendar-dialog";
 import { SubscriptionLogo } from "@/components/subscription-logo";
+import { SubscriptionStatusBadge } from "@/components/subscription-status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -29,14 +29,6 @@ import { formatBillingCycleLabel, isOneTimeBuyout, isOneTimeFixedTerm } from "@/
 import { getEffectiveSubscriptionStatus } from "@/modules/subscriptions/domain/subscription-status";
 
 const DEFAULT_LOGO_FALLBACK_COLOR = "hsl(var(--primary))";
-
-const statusBadgeClassNames = {
-  trial: "border-warning/20 bg-warning/10 text-warning",
-  active: "border-success/20 bg-success/10 text-success",
-  expired: "border-destructive/20 bg-destructive/10 text-destructive",
-  paused: "border-muted bg-muted text-muted-foreground",
-  cancelled: "border-destructive/20 bg-destructive/10 text-destructive",
-} satisfies Record<SubscriptionStatus, string>;
 
 interface SubscriptionDetailDialogProps {
   open: boolean;
@@ -135,9 +127,7 @@ function SubscriptionDetailContent({
             {formatBillingCycleLabel(subscription, locale)}
           </p>
         </div>
-        <Badge variant="outline" className={cn("shrink-0", statusBadgeClassNames[effectiveStatus])}>
-          {label(STATUS_LABELS[effectiveStatus])}
-        </Badge>
+        <SubscriptionStatusBadge status={effectiveStatus} />
       </div>
 
       <div className="grid gap-3">
@@ -162,6 +152,11 @@ function SubscriptionDetailContent({
         ) : null}
         <DetailRow label={t("subscription.detail.reminder")}>
           {reminderLabel}
+        </DetailRow>
+        <DetailRow label={t("subscription.detail.publicVisibility")}>
+          <Badge variant={subscription.publicHidden ? "secondary" : "outline"} className="w-fit sm:ml-auto">
+            {subscription.publicHidden ? t("subscription.publicVisibilityHidden") : t("subscription.publicVisibilityVisible")}
+          </Badge>
         </DetailRow>
         {subscription.tags.length > 0 ? (
           <DetailRow label={t("subscription.field.tags")} alignStart>

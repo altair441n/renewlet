@@ -23,6 +23,7 @@ const mocks = vi.hoisted(() => ({
   handleDeleteSubscription: vi.fn(),
   handleEditSubscription: vi.fn(),
   handleTogglePinnedSubscription: vi.fn(),
+  handleTogglePublicHiddenSubscription: vi.fn(),
   handleSaveSubscription: vi.fn(),
   handleEditDialogOpenChange: vi.fn(),
   exportToJSON: vi.fn(),
@@ -94,6 +95,7 @@ vi.mock("@/modules/subscriptions/application/use-subscription-crud", () => ({
     handleDeleteSubscription: mocks.handleDeleteSubscription,
     handleEditSubscription: mocks.handleEditSubscription,
     handleTogglePinnedSubscription: mocks.handleTogglePinnedSubscription,
+    handleTogglePublicHiddenSubscription: mocks.handleTogglePublicHiddenSubscription,
     handleSaveSubscription: mocks.handleSaveSubscription,
     handleEditDialogOpenChange: mocks.handleEditDialogOpenChange,
   }),
@@ -132,11 +134,13 @@ vi.mock("@/components/subscription-card", () => ({
     subscription,
     inheritedReminderDays,
     onTogglePinned,
+    onTogglePublicHidden,
     onViewDetails,
   }: {
     subscription: Subscription;
     inheritedReminderDays: number;
     onTogglePinned?: (id: string) => void;
+    onTogglePublicHidden?: (id: string) => void;
     onViewDetails?: (id: string) => void;
   }) => (
     <article data-testid="subscription-card">
@@ -147,6 +151,9 @@ vi.mock("@/components/subscription-card", () => ({
       </button>
       <button type="button" onClick={() => onTogglePinned?.(subscription.id)}>
         置顶 {subscription.name}
+      </button>
+      <button type="button" onClick={() => onTogglePublicHidden?.(subscription.id)}>
+        公开切换 {subscription.name}
       </button>
     </article>
   ),
@@ -205,6 +212,7 @@ function subscription(overrides: SubscriptionOverrides = {}): Subscription {
     repeatReminderInterval: "1h",
     repeatReminderWindow: "72h",
     pinned: false,
+    publicHidden: false,
   };
 
   if (overrides.billingCycle === "custom") {
@@ -374,6 +382,20 @@ describe("Subscriptions page sorting", () => {
     await user.click(screen.getByRole("button", { name: "置顶 Regular Service" }));
 
     expect(mocks.handleTogglePinnedSubscription).toHaveBeenCalledWith("regular");
+  });
+
+  it("wires public visibility toggles from subscription cards", async () => {
+    const user = userEvent.setup();
+    mocks.useInfiniteSubscriptions.mockReturnValue({
+      subscriptions: [subscription({ id: "public-toggle", name: "Public Toggle" })],
+      isPending: false,
+    });
+
+    renderSubscriptionsPage();
+
+    await user.click(screen.getByRole("button", { name: "公开切换 Public Toggle" }));
+
+    expect(mocks.handleTogglePublicHiddenSubscription).toHaveBeenCalledWith("public-toggle");
   });
 
   it("opens the read-only detail view from a subscription card and edits from that detail view", async () => {

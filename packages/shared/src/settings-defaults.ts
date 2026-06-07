@@ -21,6 +21,7 @@ export function createDefaultAppSettings(options: DefaultSettingsOptions = {}): 
     locale: options.locale ?? "zh-CN",
     showExpired: true,
     defaultCurrency: "CNY",
+    publicStatusCurrency: "inherit",
     exchangeRateProvider: "floatrates",
     builtInIconSources: DEFAULT_BUILT_IN_ICON_SOURCES,
     monthlyBudget: 1500,

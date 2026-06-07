@@ -22,6 +22,7 @@ const SETTINGS_SECTIONS = [
   { id: "settings-data-config", labelKey: "settings.sectionNav.dataConfig" },
   { id: "settings-exchange", labelKey: "settings.sectionNav.exchange" },
   { id: "settings-calendar-feed", labelKey: "settings.sectionNav.calendarFeed" },
+  { id: "settings-public-status", labelKey: "settings.sectionNav.publicStatus" },
   { id: "settings-timezone", labelKey: "settings.sectionNav.timezone" },
   { id: "settings-notifications", labelKey: "settings.sectionNav.notifications" },
 ] as const;

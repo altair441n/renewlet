@@ -461,6 +461,7 @@ function subscriptionRow(id: string, name: string, status: string, billingCycle:
     category: "developer_tools",
     status,
     pinned: 0,
+    public_hidden: 0,
     payment_method: "credit_card",
     start_date: "2099-01-01",
     next_billing_date: nextBillingDate,

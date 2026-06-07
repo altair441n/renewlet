@@ -16,6 +16,7 @@ const legacyPocketBaseRow = {
   category: "ai_tools",
   status: "active",
   pinned: false,
+  publicHidden: false,
   paymentMethod: "apple_pay",
   startDate: "2026-02-03",
   nextBillingDate: "2026-05-29",

@@ -48,6 +48,7 @@ export type SubscriptionFormState = {
   oneTimeTermUnit: CustomCycleUnit;
   category: Category;
   status: SubscriptionStatus;
+  publicHidden: boolean;
   paymentMethod: PaymentMethod | "";
   /** date-only 在表单内保持字符串，只有日历控件边界才临时转 Date。 */
   startDate: DateOnly | undefined;
@@ -81,6 +82,7 @@ export function createSubscriptionFormState(
     oneTimeTermUnit: "month",
     category: "productivity",
     status: "active",
+    publicHidden: false,
     paymentMethod: "",
     startDate: undefined,
     nextBillingDate: undefined,

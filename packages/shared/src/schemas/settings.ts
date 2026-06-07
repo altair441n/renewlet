@@ -39,6 +39,10 @@ const optionalSmtpPortSchema = z.string().trim().max(5).refine((value) => {
 
 const timezoneSchema = z.string().trim().min(1).max(80).refine(isValidTimeZone, "时区无效");
 const globalReminderDaysSchema = z.number().int().nonnegative().max(MAX_REMINDER_DAYS);
+export const publicStatusCurrencySchema = z.union([
+  z.literal("inherit"),
+  z.string().trim().regex(/^[A-Z]{3}$/),
+]);
 
 const builtInIconSourceSettingSchema = z.object({
   enabled: z.boolean(),
@@ -70,6 +74,7 @@ const appSettingsShape = {
   locale: z.enum(SUPPORTED_LOCALES),
   showExpired: z.boolean(),
   defaultCurrency: z.string().trim().regex(/^[A-Z]{3}$/),
+  publicStatusCurrency: publicStatusCurrencySchema,
   exchangeRateProvider: z.preprocess(normalizeExchangeRateProvider, exchangeRateProviderSchema),
   builtInIconSources: builtInIconSourcesSchema,
   monthlyBudget: z.number().finite().nonnegative().max(1_000_000_000),

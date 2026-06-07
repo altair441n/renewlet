@@ -81,6 +81,7 @@ const baseSubscription: Subscription = {
   repeatReminderInterval: "1h",
   repeatReminderWindow: "72h",
   pinned: false,
+  publicHidden: false,
 };
 
 function renderDetailDialog({

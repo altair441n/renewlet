@@ -42,10 +42,10 @@ export async function createSubscription(request: Request, env: Env): Promise<Re
   await env.DB.prepare(`
     INSERT INTO subscriptions (
       id, user_id, name, logo, price, currency, billing_cycle, custom_days, custom_cycle_unit, one_time_term_count, one_time_term_unit,
-      category, status, pinned, payment_method,
+      category, status, pinned, public_hidden, payment_method,
       start_date, next_billing_date, auto_calculate_next_billing_date, trial_end_date, website, notes, tags_json,
       reminder_days, repeat_reminder_enabled, repeat_reminder_interval, repeat_reminder_window, extra_json, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).bind(...subscriptionRowValues(row)).run();
   return json({ subscription: toApiSubscription(row) }, { status: 201 });
 }
@@ -65,7 +65,7 @@ export async function updateSubscription(request: Request, env: Env, id: string)
     UPDATE subscriptions SET
       name = ?, logo = ?, price = ?, currency = ?, billing_cycle = ?, custom_days = ?, custom_cycle_unit = ?,
       one_time_term_count = ?, one_time_term_unit = ?, category = ?, status = ?,
-      pinned = ?, payment_method = ?, start_date = ?, next_billing_date = ?, auto_calculate_next_billing_date = ?,
+      pinned = ?, public_hidden = ?, payment_method = ?, start_date = ?, next_billing_date = ?, auto_calculate_next_billing_date = ?,
       trial_end_date = ?, website = ?, notes = ?, tags_json = ?, reminder_days = ?, repeat_reminder_enabled = ?,
       repeat_reminder_interval = ?, repeat_reminder_window = ?, extra_json = ?, updated_at = ?
     WHERE user_id = ? AND id = ?
@@ -82,6 +82,7 @@ export async function updateSubscription(request: Request, env: Env, id: string)
     merged.category,
     merged.status,
     merged.pinned,
+    merged.public_hidden,
     merged.payment_method,
     merged.start_date,
     merged.next_billing_date,
@@ -170,6 +171,7 @@ function toBody(row: SubscriptionRow): SubscriptionBody {
     category: row.category,
     status: row.status as SubscriptionBody["status"],
     pinned: row.pinned === 1,
+    publicHidden: row.public_hidden === 1,
     paymentMethod: row.payment_method,
     startDate: row.start_date,
     nextBillingDate: row.next_billing_date,
@@ -211,6 +213,8 @@ export function toSubscriptionRow(
     category: body.category,
     status: body.status,
     pinned: boolToInt(body.pinned),
+    // publicHidden=false 是公开页启用后的默认展示语义；隐藏必须由用户逐条显式选择。
+    public_hidden: boolToInt(body.publicHidden),
     payment_method: body.paymentMethod ?? null,
     start_date: body.startDate,
     next_billing_date: body.nextBillingDate,
@@ -235,7 +239,7 @@ export function subscriptionRowValues(row: SubscriptionRow): unknown[] {
   return [
     row.id, row.user_id, row.name, row.logo, row.price, row.currency, row.billing_cycle, row.custom_days, row.custom_cycle_unit,
     row.one_time_term_count, row.one_time_term_unit,
-    row.category, row.status, row.pinned, row.payment_method, row.start_date, row.next_billing_date,
+    row.category, row.status, row.pinned, row.public_hidden, row.payment_method, row.start_date, row.next_billing_date,
     row.auto_calculate_next_billing_date, row.trial_end_date, row.website, row.notes, row.tags_json,
     row.reminder_days, row.repeat_reminder_enabled, row.repeat_reminder_interval, row.repeat_reminder_window,
     row.extra_json, row.created_at, row.updated_at,

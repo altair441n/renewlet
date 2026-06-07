@@ -28,6 +28,7 @@ type SubscriptionWritePayload = {
   category: string;
   status: Subscription["status"];
   pinned: boolean;
+  publicHidden: boolean;
   paymentMethod: string | null;
   startDate: string;
   nextBillingDate: string;
@@ -95,6 +96,7 @@ function apiSubscriptionFromPayload(id: string, payload: SubscriptionWritePayloa
     category: payload.category,
     status: payload.status,
     pinned: payload.pinned,
+    publicHidden: payload.publicHidden,
     ...(payload.paymentMethod !== null ? { paymentMethod: payload.paymentMethod } : {}),
     startDate: payload.startDate,
     nextBillingDate: payload.nextBillingDate,
@@ -124,6 +126,7 @@ function apiSubscriptionFromDraft(id: string, draft: RecurringSubscriptionDraft)
     category: draft.category,
     status: draft.status,
     pinned: draft.pinned,
+    publicHidden: draft.publicHidden,
     paymentMethod: draft.paymentMethod ?? null,
     startDate: draft.startDate,
     nextBillingDate: draft.nextBillingDate,
@@ -151,6 +154,7 @@ function subscriptionDraft(overrides: Partial<RecurringSubscriptionDraft> = {}):
     category: "productivity",
     status: "active",
     pinned: false,
+    publicHidden: false,
     paymentMethod: undefined,
     startDate: assertDateOnly("2026-05-14"),
     nextBillingDate: assertDateOnly("2026-06-14"),

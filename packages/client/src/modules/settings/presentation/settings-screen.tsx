@@ -455,7 +455,7 @@ export function SettingsScreen() {
                         {t("settings.notificationReminderDaysHelp")}
                       </p>
                     </div>
-                    <div className="grid content-start gap-2">
+                    <div className="grid content-start gap-2 sm:col-span-2">
                       <Label>{t("settings.tip")}</Label>
                       <p className="text-xs text-muted-foreground">
                         {t("settings.cronTip")}

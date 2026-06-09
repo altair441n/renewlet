@@ -15,6 +15,12 @@ https://<worker-name>.<workers-dev-subdomain>.workers.dev/setup
 
 保持生成的部署命令为 `pnpm deploy`。Renewlet 的 deploy 脚本会先应用 D1 migrations，再发布 Worker，确保新表先创建好，更新后的 API 再开始对外服务。
 
+### 无法获取存储库内容
+
+如果 Cloudflare 页面提示 `Failed to get repository contents` / `无法获取存储库内容`，通常是部署向导读取 GitHub 公共仓库时遇到临时限流或网络出口问题，不代表 Renewlet 服务端或 Worker 代码部署失败。
+
+如果你使用代理节点、公司/校园网络或其他共享网络出口，当前出口 IP 也可能被 GitHub 或 Cloudflare 临时限流。不要连续重试；可以稍后再试、切换更稳定的代理节点/网络出口；仍失败时，改用下面的手动部署流程。
+
 ### 升级办法
 
 一键部署会在你的 GitHub/GitLab 账号下生成一个仓库。以后升级，更新这个仓库，不要重新点一键部署按钮。

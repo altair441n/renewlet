@@ -15,6 +15,12 @@ https://<worker-name>.<workers-dev-subdomain>.workers.dev/setup
 
 Keep the generated deploy command as `pnpm deploy`. Renewlet's deploy script applies D1 migrations before publishing the Worker, so new tables are created before the updated API starts serving traffic.
 
+### Failed To Get Repository Contents
+
+If the Cloudflare page says `Failed to get repository contents`, the deploy wizard is usually hitting a temporary rate limit or network-egress issue while reading the public GitHub repository. This does not mean the Renewlet server or Worker code failed to deploy.
+
+If you are using a proxy/VPN node, a corporate or school network, or another shared network egress, the current egress IP may also be temporarily rate-limited by GitHub or Cloudflare. Avoid repeated retries; try again later, switch to a more reliable proxy node or network egress; if it still fails, use the manual deploy flow below.
+
 ### Upgrade
 
 One-click deploy creates a repository in your GitHub/GitLab account. To upgrade later, update that repository. Do not click the one-click button again.

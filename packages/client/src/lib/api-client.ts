@@ -19,7 +19,7 @@
  *   H -- 成功 --> J[返回 parse 后的数据]
  * ```
  *
- * 注意： FormData 请求不能手动设置 content-type，否则浏览器不会自动补 multipart boundary。
+ * 注意： 无 body 请求不声明 JSON content-type；FormData 请求也不能手动设置，否则浏览器不会自动补 multipart boundary。
  * 注意： 不要恢复 `apiFetch<T>` 式的纯类型断言；本文件是前端拒绝异常 API 响应的唯一运行时边界。
  */
 import { getAuthHeader } from "@/lib/pocketbase";
@@ -282,8 +282,9 @@ function getClientTimeZoneHeader(): string | null {
 function buildApiHeaders(headersInit: HeadersInit | undefined, body: BodyInit | null | undefined): Headers {
   const headers = new Headers(headersInit);
   const isFormDataBody = typeof FormData !== "undefined" && body instanceof FormData;
-  // 默认 JSON；FormData 必须让浏览器自己补 multipart boundary。
-  if (!headers.has("content-type") && !isFormDataBody) {
+  const hasBody = body !== null && body !== undefined;
+  // 业务 GET/DELETE 统一走产品 API，不带伪 JSON body；POST/PUT/PATCH 的普通对象才默认声明 JSON。
+  if (!headers.has("content-type") && hasBody && !isFormDataBody) {
     headers.set("content-type", "application/json");
   }
   if (!headers.has("x-client-time-zone")) {
@@ -330,10 +331,10 @@ async function fetchWithApiBoundary(input: RequestInfo, init?: ApiFetchInit): Pr
 }
 
 /**
- * 带运行时 schema 校验的 fetch 封装（默认 JSON）。
+ * 带运行时 schema 校验的 fetch 封装。
  *
  * 约定：
- * - 自动加 JSON content-type，但 FormData 保留浏览器 multipart boundary
+ * - 有普通 body 时自动加 JSON content-type；无 body 和 FormData 保持浏览器默认边界
  * - 自动携带 Cookie 和当前运行面的 Bearer token
  * - 非 2xx 时抛出 `ApiError`
  * - 2xx 响应必须通过调用方传入的 Zod schema，否则抛出 `ApiError`

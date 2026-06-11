@@ -22,7 +22,7 @@ describe("api-client", () => {
     vi.unstubAllGlobals();
   });
 
-  it("parses successful JSON responses and sends JSON content-type by default", async () => {
+  it("parses successful JSON responses without content-type on bodyless GET requests", async () => {
     const fetchMock = vi.mocked(fetch);
     fetchMock.mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 }));
 
@@ -32,9 +32,37 @@ describe("api-client", () => {
     const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
     expect(init.credentials).toBe("include");
     expect(init.headers).toBeInstanceOf(Headers);
-    expect((init.headers as Headers).get("content-type")).toBe("application/json");
+    expect((init.headers as Headers).has("content-type")).toBe(false);
     expect((init.headers as Headers).get("Accept-Language")).toBeTruthy();
     expect((init.headers as Headers).get("X-Renewlet-Locale")).toBeTruthy();
+  });
+
+  it("sends JSON content-type when a non-FormData body is present", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+
+    await apiFetch("/api/example", okResponseSchema, {
+      method: "POST",
+      body: JSON.stringify({ ok: true }),
+    });
+
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect((init.headers as Headers).get("content-type")).toBe("application/json");
+  });
+
+  it("does not set content-type for FormData bodies", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+    const form = new FormData();
+    form.append("file", new Blob(["x"], { type: "image/png" }), "logo.png");
+
+    await apiFetch("/api/app/assets", okResponseSchema, {
+      method: "POST",
+      body: form,
+    });
+
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect((init.headers as Headers).has("content-type")).toBe(false);
   });
 
   it("does not rewrite legacy API paths", async () => {

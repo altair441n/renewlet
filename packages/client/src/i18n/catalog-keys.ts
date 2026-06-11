@@ -237,6 +237,7 @@ export const MESSAGE_KEYS = [
   "auth.loginSubtitle",
   "auth.loginSuccess",
   "auth.password",
+  "auth.rememberEmail",
   "auth.setupAdminLink",
   "auth.showPassword",
   "auth.validation.emailInvalid",

@@ -11,6 +11,7 @@ export const messages = [
   msg({ id: "auth.loggingIn", message: "登录中..." }),
   msg({ id: "auth.loginSuccess", message: "登录成功" }),
   msg({ id: "auth.loginFailed", message: "登录失败" }),
+  msg({ id: "auth.rememberEmail", message: "记住邮箱" }),
   msg({ id: "auth.validation.emailRequired", message: "请输入邮箱" }),
   msg({ id: "auth.validation.emailInvalid", message: "请输入有效邮箱" }),
   msg({ id: "auth.validation.passwordRequired", message: "请输入密码" }),

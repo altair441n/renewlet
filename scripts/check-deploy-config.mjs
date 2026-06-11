@@ -229,18 +229,55 @@ function checkDockerSelfUpdateLayout() {
 function checkCloudflareDeployMigrationScript() {
   const packageJson = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8"));
   const deployScript = packageJson.scripts?.deploy;
+  const deployCloudflareScript = packageJson.scripts?.["deploy:cloudflare"];
+  const buildCloudflareScript = packageJson.scripts?.["build:cloudflare"];
   const devScript = packageJson.scripts?.["dev:cloudflare"];
   const migrationScript = packageJson.scripts?.["cloudflare:migrations:apply"];
 
-  // Deploy Button 和自管 Wrangler 部署都依赖这个顺序，避免 Worker 已更新但 D1 表结构仍停在旧版本。
-  if (deployScript !== "pnpm cloudflare:migrations:apply && wrangler deploy") {
-    throw new Error("package.json deploy script must apply Cloudflare D1 migrations before wrangler deploy.");
+  // Deploy Button 和自管 Wrangler 部署都依赖这个顺序：先确认生产 headers，再迁移 D1，最后更新 Worker。
+  if (deployScript !== "node scripts/prepare-cloudflare-local-headers.mjs --check-production && pnpm cloudflare:migrations:apply && wrangler deploy") {
+    throw new Error("package.json deploy script must check production Cloudflare headers before remote migration and wrangler deploy.");
+  }
+  if (deployCloudflareScript !== "pnpm build:cloudflare && pnpm deploy") {
+    throw new Error("package.json deploy:cloudflare must rebuild production Cloudflare assets before deploy.");
+  }
+  if (buildCloudflareScript !== "VITE_RENEWLET_RUNTIME=cloudflare pnpm --filter @renewlet/client build") {
+    throw new Error("package.json build:cloudflare must keep the production client build without local HTTP header rewrites.");
   }
   if (migrationScript !== "wrangler d1 migrations apply DB --remote") {
     throw new Error("package.json cloudflare:migrations:apply must target the DB binding with remote D1 migrations.");
   }
-  if (devScript !== "pnpm build:cloudflare && pnpm cloudflare:migrations:apply:local && node scripts/cloudflare-dev-hint.mjs && wrangler dev --test-scheduled") {
-    throw new Error("package.json dev:cloudflare must print the local Cron hint and enable Wrangler scheduled middleware with --test-scheduled.");
+  if (devScript !== "pnpm build:cloudflare && node scripts/prepare-cloudflare-local-headers.mjs && pnpm cloudflare:migrations:apply:local && node scripts/cloudflare-dev-hint.mjs && wrangler dev --test-scheduled") {
+    throw new Error("package.json dev:cloudflare must prepare local HTTP headers, print the local Cron hint, and enable Wrangler scheduled middleware.");
+  }
+}
+
+function checkCloudflareStaticAssetHeadersContract() {
+  const publicHeaders = readFileSync(join(repoRoot, "packages/client/public/_headers"), "utf8");
+  const localHeadersScript = readFileSync(join(repoRoot, "scripts/prepare-cloudflare-local-headers.mjs"), "utf8");
+
+  // 生产 Cloudflare HTTPS 入口继续使用强 CSP；只有 ignored 的 dist 文件能被本地 HTTP dev 放宽。
+  for (const snippet of [
+    "Content-Security-Policy:",
+    "img-src 'self' data: blob: https:",
+    "upgrade-insecure-requests",
+  ]) {
+    if (!publicHeaders.includes(snippet)) {
+      throw new Error(`packages/client/public/_headers must keep production CSP snippet: ${snippet}`);
+    }
+  }
+  if (publicHeaders.includes("img-src 'self' data: blob: http: https:")) {
+    throw new Error("packages/client/public/_headers must not use the local HTTP img-src policy.");
+  }
+  for (const snippet of [
+    "packages/client/dist/_headers",
+    "upgrade-insecure-requests",
+    "img-src 'self' data: blob: http: https:",
+    "--check-production",
+  ]) {
+    if (!localHeadersScript.includes(snippet)) {
+      throw new Error(`prepare-cloudflare-local-headers.mjs must keep local/production header guard snippet: ${snippet}`);
+    }
   }
 }
 
@@ -251,6 +288,22 @@ function checkCloudflareScheduledLocalRoute() {
   // Wrangler 的 /cdn-cgi scheduled 测试入口在 Workers Static Assets 下会先打到 asset proxy；Renewlet 本地 Cron 固定走 /__scheduled。
   if (!runWorkerFirst.includes('"/__scheduled"')) {
     throw new Error('wrangler.jsonc assets.run_worker_first must include "/__scheduled" for local Cron testing.');
+  }
+}
+
+function checkCloudflareLocalDevNetworkAccess() {
+  const wranglerConfig = readFileSync(join(repoRoot, "wrangler.jsonc"), "utf8");
+  const devBlock = /"dev"\s*:\s*\{(?<body>[^}]+)\}/s.exec(wranglerConfig)?.groups?.body ?? "";
+
+  // 本地真机验收依赖 Wrangler 监听所有网卡；`--host` 是 upstream 配置，不能替代 dev.ip。
+  if (!/"ip"\s*:\s*"0\.0\.0\.0"/.test(devBlock)) {
+    throw new Error('wrangler.jsonc dev.ip must be "0.0.0.0" so pnpm dev:cloudflare is reachable by LAN IP.');
+  }
+  if (!/"port"\s*:\s*8787/.test(devBlock)) {
+    throw new Error("wrangler.jsonc dev.port must stay 8787 so local Cloudflare URLs and hints remain stable.");
+  }
+  if (!/"local_protocol"\s*:\s*"http"/.test(devBlock)) {
+    throw new Error('wrangler.jsonc dev.local_protocol must stay "http" for local Cloudflare development.');
   }
 }
 
@@ -340,7 +393,9 @@ checkGeneratedSecrets();
 checkInvalidExistingPBKeyIsRejected();
 checkDockerSelfUpdateLayout();
 checkCloudflareDeployMigrationScript();
+checkCloudflareStaticAssetHeadersContract();
 checkCloudflareScheduledLocalRoute();
+checkCloudflareLocalDevNetworkAccess();
 checkCloudflareFreshD1Migrations();
 checkCloudflareDeployButtonVars();
 checkCloudflareDeployButtonVersionFallback();
